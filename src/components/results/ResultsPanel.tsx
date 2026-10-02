@@ -188,9 +188,102 @@ export function ResultsPanel() {
     txt += `Длительность приёма: ${formatDuration(duration)}\n\n`
 
     txt += `=== АНАМНЕЗ ===\n`
+    // Словари для перевода (определены ниже в exportProtocolPDF, продублируем для TXT)
+    const ANAMNESIS_LABELS_TXT: Record<string, string> = {
+      livingConditions: 'Где живёт',
+      outdoorAccess: 'Доступ на улицу / режим прогулок',
+      otherAnimals: 'Другие животные дома',
+      contactsStrangers: 'Контакты с чужими животными',
+      caretaker: 'Кто ухаживает',
+      decisionMaker: 'Кто принимает решения по лечению',
+      physicalActivity: 'Физическая нагрузка',
+      dietType: 'Тип рациона',
+      dietBrand: 'Бренд / линейка корма',
+      feedingFreq: 'Частота кормления',
+      feedingVolume: 'Объём кормления',
+      treats: 'Лакомства',
+      supplements: 'Добавки / витамины',
+      dietChanges: 'Изменения рациона недавно',
+      tableFoodAccess: 'Доступ к корму со стола',
+      trashAccess: 'Доступ к мусору',
+      waterSource: 'Источник воды',
+      waterChangeFreq: 'Как часто меняют воду',
+      waterIntake: 'Сколько пьёт (оценка владельца)',
+      vaccination: 'Вакцинация (препарат)',
+      vaccinationDate: 'Дата последней вакцинации',
+      fleaTickTreatment: 'Обработка от блох/клещей (препарат)',
+      fleaTickDate: 'Дата последней обработки от блох/клещей',
+      deworming: 'Дегельминтизация (препарат)',
+      dewormingDate: 'Дата последней дегельминтизации',
+      neutered: 'Кастрация / стерилизация',
+      neuteredDate: 'Дата операции',
+      neuteredComplications: 'Осложнения после операции',
+      mainComplaint: 'Что именно беспокоит? С чего началось?',
+      complaintOnset: 'Когда заметили первые признаки',
+      complaintDevelopment: 'Как развивались симптомы',
+      associatedFactors: 'С чем владелец связывает начало',
+      previousEpisodes: 'Была ли такая проблема раньше, исход',
+      previousTreatment: 'Какая помощь уже оказана по текущей проблеме',
+      currentTreatment: 'Текущее лечение (постоянные препараты)',
+      currentTreatmentEffect: 'Эффект от текущего лечения',
+      generalStatus: 'Общее состояние: активность, вес, лихорадка, поведение',
+      coughDyspnea: 'Кашель / одышка: характер, при нагрузке/ночью, выделения',
+      polyuriaPolydipsia: 'Полиурия / полидипсия',
+      appetiteGi: 'Аппетит / ЖКТ: аппетит, рвота, стул, доступ к инородному',
+      urogenital: 'Мочеполовая: частота, характер, цвет, недержание, течки',
+      skin: 'Кожа / шерсть: зуд, расчёсы, алопеция, перхоть, паразиты',
+      nervous: 'Нервная / органы чувств: судороги, шаткость, наклон головы, глаза',
+      musculoskeletal: 'Опорно-двигательный: хромота, нежелание прыгать, травмы',
+      travel: 'Поездки, выставки, передержки, груминг',
+      exhibitions: 'Выставки',
+      boarding: 'Передержки',
+      grooming: 'Груминг',
+      sickAnimalsNearby: 'Больные животные в доме/подъезде',
+      walkingArea: 'Для собак: где гуляет, контакт с дикими/падалью/грызунами',
+      wildlifeContact: 'Контакт с дикими животными',
+      huntingBehavior: 'Для кошек: охота, вода из луж/туалета',
+      previousDiseases: 'Предыдущие заболевания',
+      surgeries: 'Операции',
+      chronicDiseases: 'Хронические заболевания',
+      permanentMedications: 'Постоянные препараты',
+      allergies: 'Аллергии',
+      anesthesiaIssues: 'Проблемы с анестезией',
+      firstEstrus: 'Первая течка',
+      estrusRegularity: 'Регулярность течки',
+      estrusDuration: 'Длительность течки',
+      falsePregnancies: 'Ложные беременности',
+      pyometra: 'Пиометра',
+      births: 'Роды',
+      breedingMales: 'Случки с котами/кобелями',
+      prostateIssues: 'Проблемы с простатой',
+    }
+    const ANAMNESIS_VALUES_TXT: Record<string, string> = {
+      apartment: 'Квартира',
+      house: 'Частный дом',
+      aviary: 'Вольер',
+      street: 'Уличное содержание',
+      shelter: 'Приют',
+      commercial: 'Промышленный корм',
+      natural: 'Натуральное кормление',
+      mixed: 'Смешанный',
+      raw: 'RAW / BARF',
+      '1': '1 раз в день',
+      '2': '2 раза в день',
+      '3': '3 раза в день',
+      free: 'Свободный доступ',
+      no: 'Нет',
+      yes: 'Да',
+      occasionally: 'Иногда',
+      sometimes: 'Иногда',
+      'true': 'Да',
+      'false': 'Нет',
+    }
     Object.entries(anamnesis).forEach(([k, v]) => {
       if (v && String(v).trim()) {
-        txt += `- ${k}: ${v}\n`
+        const label = ANAMNESIS_LABELS_TXT[k] || k
+        const trimmed = String(v).trim()
+        const value = ANAMNESIS_VALUES_TXT[trimmed] || v
+        txt += `- ${label}: ${value}\n`
       }
     })
     txt += `\n`
@@ -376,10 +469,120 @@ ${gap()}
 <div class="section">Анамнез</div>
 `
 
+    // 🆕 Словарь для перевода английских ключей анамнеза в русские подписи
+    const ANAMNESIS_LABELS: Record<string, string> = {
+      livingConditions: 'Где живёт',
+      outdoorAccess: 'Доступ на улицу / режим прогулок',
+      otherAnimals: 'Другие животные дома',
+      contactsStrangers: 'Контакты с чужими животными',
+      caretaker: 'Кто ухаживает',
+      decisionMaker: 'Кто принимает решения по лечению',
+      physicalActivity: 'Физическая нагрузка',
+      dietType: 'Тип рациона',
+      dietBrand: 'Бренд / линейка корма',
+      feedingFreq: 'Частота кормления',
+      feedingVolume: 'Объём кормления',
+      treats: 'Лакомства',
+      supplements: 'Добавки / витамины',
+      dietChanges: 'Изменения рациона недавно',
+      tableFoodAccess: 'Доступ к корму со стола',
+      trashAccess: 'Доступ к мусору',
+      waterSource: 'Источник воды',
+      waterChangeFreq: 'Как часто меняют воду',
+      waterIntake: 'Сколько пьёт (оценка владельца)',
+      vaccination: 'Вакцинация (препарат)',
+      vaccinationDate: 'Дата последней вакцинации',
+      fleaTickTreatment: 'Обработка от блох/клещей (препарат)',
+      fleaTickDate: 'Дата последней обработки от блох/клещей',
+      deworming: 'Дегельминтизация (препарат)',
+      dewormingDate: 'Дата последней дегельминтизации',
+      neutered: 'Кастрация / стерилизация',
+      neuteredDate: 'Дата операции',
+      neuteredComplications: 'Осложнения после операции',
+      mainComplaint: 'Что именно беспокоит? С чего началось?',
+      complaintOnset: 'Когда заметили первые признаки',
+      complaintDevelopment: 'Как развивались симптомы',
+      associatedFactors: 'С чем владелец связывает начало',
+      previousEpisodes: 'Была ли такая проблема раньше, исход',
+      previousTreatment: 'Какая помощь уже оказана по текущей проблеме',
+      currentTreatment: 'Текущее лечение (постоянные препараты)',
+      currentTreatmentEffect: 'Эффект от текущего лечения',
+      generalStatus: 'Общее состояние: активность, вес, лихорадка, поведение',
+      coughDyspnea: 'Кашель / одышка: характер, при нагрузке/ночью, выделения',
+      polyuriaPolydipsia: 'Полиурия / полидипсия',
+      appetiteGi: 'Аппетит / ЖКТ: аппетит, рвота, стул, доступ к инородному',
+      urogenital: 'Мочеполовая: частота, характер, цвет, недержание, течки',
+      skin: 'Кожа / шерсть: зуд, расчёсы, алопеция, перхоть, паразиты',
+      nervous: 'Нервная / органы чувств: судороги, шаткость, наклон головы, глаза',
+      musculoskeletal: 'Опорно-двигательный: хромота, нежелание прыгать, травмы',
+      travel: 'Поездки, выставки, передержки, груминг',
+      exhibitions: 'Выставки',
+      boarding: 'Передержки',
+      grooming: 'Груминг',
+      sickAnimalsNearby: 'Больные животные в доме/подъезде',
+      walkingArea: 'Для собак: где гуляет, контакт с дикими/падалью/грызунами',
+      wildlifeContact: 'Контакт с дикими животными',
+      huntingBehavior: 'Для кошек: охота, вода из луж/туалета',
+      previousDiseases: 'Предыдущие заболевания',
+      surgeries: 'Операции',
+      chronicDiseases: 'Хронические заболевания',
+      permanentMedications: 'Постоянные препараты',
+      allergies: 'Аллергии',
+      anesthesiaIssues: 'Проблемы с анестезией',
+      firstEstrus: 'Первая течка',
+      estrusRegularity: 'Регулярность течки',
+      estrusDuration: 'Длительность течки',
+      falsePregnancies: 'Ложные беременности',
+      pyometra: 'Пиометра',
+      births: 'Роды',
+      breedingMales: 'Случки с котами/кобелями',
+      prostateIssues: 'Проблемы с простатой',
+    }
+
+    // 🆕 Словарь для перевода значений select-полей (которые хранятся на английском)
+    const ANAMNESIS_VALUES: Record<string, string> = {
+      // livingConditions
+      apartment: 'Квартира',
+      house: 'Частный дом',
+      aviary: 'Вольер',
+      street: 'Уличное содержание',
+      shelter: 'Приют',
+      // dietType
+      commercial: 'Промышленный корм',
+      natural: 'Натуральное кормление',
+      mixed: 'Смешанный',
+      raw: 'RAW / BARF',
+      // feedingFreq
+      '1': '1 раз в день',
+      '2': '2 раза в день',
+      '3': '3 раза в день',
+      free: 'Свободный доступ',
+      // tableFoodAccess / trashAccess
+      no: 'Нет',
+      yes: 'Да',
+      occasionally: 'Иногда',
+      sometimes: 'Иногда',
+      // neutered (Да/Нет)
+      'true': 'Да',
+      'false': 'Нет',
+    }
+
+    // 🆕 Хелпер: перевод значения (если в словаре — вернуть перевод, иначе оригинал)
+    const translateValue = (v: string): string => {
+      const trimmed = String(v).trim()
+      // Если значение состоит из одного слова и есть в словаре — переводим
+      if (trimmed && ANAMNESIS_VALUES[trimmed]) {
+        return ANAMNESIS_VALUES[trimmed]
+      }
+      return v
+    }
+
     const anamnesisEntries = Object.entries(anamnesis).filter(([, v]) => v && String(v).trim())
     if (anamnesisEntries.length > 0) {
       anamnesisEntries.forEach(([k, v]) => {
-        html += line(k, v)
+        const label = ANAMNESIS_LABELS[k] || k  // Если нет перевода — английский ключ (фоллбэк)
+        const value = translateValue(String(v))
+        html += line(label, value)
       })
     } else {
       html += '<p>Анамнез не заполнен</p>'
