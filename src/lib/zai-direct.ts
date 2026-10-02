@@ -1,23 +1,29 @@
 /**
- * Z.AI Direct API — генерация дифференциальных диагнозов и OCR.
+ * AI — генерация дифференциальных диагнозов и OCR.
  *
- * Источник: Z.AI (BigModel) — https://open.bigmodel.cn/api/paas/v4/chat/completions
- * - glm-4.5-air — для текста (дифдиагнозы)
- * - glm-4.5v — для vision (OCR сканов)
+ * Источники (по приоритету):
+ * 1. AnyModel.org — OpenAI-compatible API. Default ключ вшит в код.
+ *    - gemini-3.7-flash-medium — vision (OCR), $0.6/1M токенов
+ *    - deepseek-v4-flash — текст (дифдиагнозы), $0.05/1M токенов (дёшево)
+ *    - CORS поддерживается — можно вызывать прямо из браузера
+ * 2. Z.AI Direct — fallback если AnyModel недоступен
+ *    - glm-4.5-air (текст) и glm-4.5v (vision)
  *
- * CORS поддерживается — можно вызывать прямо из браузера без прокси.
- *
- * Ключ по умолчанию встроен в код (DEFAULT_ZAI_API_KEY).
- * Пользователь может переопределить через localStorage 'zai_api_key'.
- *
- * Только Z.AI Direct API. Локального OCR нет.
+ * Ключи по умолчанию вшиты в код. Можно переопределить через localStorage:
+ * - `anymodel_api_key` — ключ AnyModel
+ * - `zai_api_key` — ключ Z.AI
  */
 
+const ANYMODEL_API_URL = 'https://anymodel.org/v1/chat/completions'
 const ZAI_API_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions'
 
-// 🔑 Ключ Z.AI API — вшит в код по запросу пользователя.
-// Если пользователь захочет переопределить — может задать localStorage 'zai_api_key'.
+// 🔑 Ключи по умолчанию — вшиты в код
+const DEFAULT_ANYMODEL_API_KEY = 'sk-dc9d4b7df36ba555-i2dh6j-2ec5b5b2'
 const DEFAULT_ZAI_API_KEY = '3ab2bda735fc40a19a907f777a93dc7d.N1NGBDl7jh3uFNUW'
+
+// 🎯 Дефолтные модели AnyModel
+const ANYMODEL_TEXT_MODEL = 'ds/deepseek-v4-flash'      // дёшево, $0.05/1M
+const ANYMODEL_VISION_MODEL = 'ag/gemini-3.7-flash-medium'  // vision, $0.6/1M
 
 // ─────────────────────────────────────────────────────────────────────
 // Утилиты
@@ -37,6 +43,11 @@ function guessFileName(dataUrl: string, fallback?: string): string {
 function getZaiApiKey(): string {
   if (typeof window === 'undefined') return DEFAULT_ZAI_API_KEY
   return localStorage.getItem('zai_api_key') || DEFAULT_ZAI_API_KEY
+}
+
+function getAnyModelApiKey(): string {
+  if (typeof window === 'undefined') return DEFAULT_ANYMODEL_API_KEY
+  return localStorage.getItem('anymodel_api_key') || DEFAULT_ANYMODEL_API_KEY
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -102,7 +113,102 @@ async function waitForRateLimit() {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Z.AI Direct API — основной вызов
+// AnyModel.org API — основной источник (OpenAI-compatible)
+// ─────────────────────────────────────────────────────────────────────
+
+async function callAnyModel(
+  model: string,
+  messages: any[],
+  options: { maxAttempts?: number; timeoutMs?: number } = {}
+): Promise<string> {
+  const { maxAttempts = 3, timeoutMs = 60000 } = options
+  const apiKey = getAnyModelApiKey()
+
+  let lastError: Error | null = null
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+
+    try {
+      console.log(`[AnyModel] Попытка ${attempt}/${maxAttempts} → ${model}`)
+      await waitForRateLimit()
+      const response = await fetch(ANYMODEL_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages,
+          max_tokens: 4000,
+        }),
+        signal: controller.signal,
+      })
+      clearTimeout(timeoutId)
+
+      if (!response.ok) {
+        let errorText = ''
+        try { errorText = await response.text() } catch {}
+
+        if (response.status === 401) {
+          throw new Error(`Неверный AnyModel API ключ (401). ${errorText.slice(0, 200)}`)
+        }
+
+        if (response.status === 429) {
+          console.warn(`[AnyModel] Rate limit (429) — попытка ${attempt}, ждём 30с...`)
+          if (attempt < maxAttempts) {
+            await new Promise((r) => setTimeout(r, 30000))
+            continue
+          }
+          throw new Error(
+            `AnyModel: лимит запросов (429). Подождите 1-2 минуты.`
+          )
+        }
+
+        throw new Error(`AnyModel HTTP ${response.status}. ${errorText.slice(0, 200)}`)
+      }
+
+      let result: any
+      try {
+        result = await response.json()
+      } catch {
+        throw new Error('AnyModel вернул некорректный JSON.')
+      }
+
+      const content = result?.choices?.[0]?.message?.content
+      if (!content) {
+        throw new Error('AnyModel вернул пустой ответ.')
+      }
+      return content
+    } catch (e: any) {
+      clearTimeout(timeoutId)
+      lastError = e
+      console.warn(`[AnyModel] Попытка ${attempt} не удалась: ${e?.message}`)
+      const isLast = attempt === maxAttempts
+      if (e?.message?.includes('429')) {
+        if (isLast) throw e
+        continue
+      }
+      const isRetryable = (
+        e?.name === 'AbortError' ||
+        e?.message?.includes('Failed to fetch') ||
+        e?.message?.includes('NetworkError') ||
+        e?.message?.includes('Load failed') ||
+        e?.message?.includes('The operation was aborted') ||
+        e?.message?.includes('ERR_')
+      )
+      if (!isRetryable || isLast) throw e
+      await new Promise((r) => setTimeout(r, 2000))
+    }
+  }
+
+  throw lastError || new Error('AnyModel: все попытки провалились')
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Z.AI Direct API — fallback если AnyModel недоступен
 // ─────────────────────────────────────────────────────────────────────
 
 async function callZaiDirect(
@@ -284,6 +390,15 @@ ${voiceNotesSummary || 'нет голосовых заметок'}
     { role: 'user', content: prompt },
   ]
 
+  // 1) AnyModel (ds/deepseek-v4-flash) — дёшево, $0.05/1M токенов
+  console.log('[AI] Использую AnyModel, модель:', ANYMODEL_TEXT_MODEL)
+  try {
+    return await callAnyModel(ANYMODEL_TEXT_MODEL, messages)
+  } catch (e: any) {
+    console.warn('[AI] AnyModel не сработал:', e.message, '— переключаюсь на Z.AI Direct')
+  }
+
+  // 2) Z.AI Direct (fallback)
   console.log('[AI] Использую Z.AI Direct, модель: glm-4.5-air')
   return callZaiDirect('glm-4.5-air', messages)
 }
@@ -325,40 +440,48 @@ export async function ocrImageDirect(imageDataUrl: string, fileName?: string): P
     },
   ]
 
-  // 3) Z.AI Direct (glm-4.5v) — единственный источник OCR
-  console.log('[OCR] Z.AI Direct (glm-4.5v)')
+  // 3) Сначала AnyModel (gemini-3.7-flash-medium — vision-модель, $0.6/1M)
+  console.log('[OCR] AnyModel (gemini-3.7-flash-medium)')
   try {
-    const result = await callZaiDirect('glm-4.5v', messages)
+    const result = await callAnyModel(ANYMODEL_VISION_MODEL, messages)
     if (result && result.trim().length > 0) {
       return result
     }
-    throw new Error('Z.AI вернул пустой ответ. Попробуйте ещё раз.')
+    throw new Error('AnyModel вернул пустой ответ')
   } catch (e: any) {
+    console.warn('[OCR] AnyModel не сработал:', e.message, '— пробую Z.AI Direct')
+    // Fallback на Z.AI Direct
+    try {
+      const result = await callZaiDirect('glm-4.5v', messages)
+      if (result && result.trim().length > 0) {
+        return result
+      }
+    } catch (e2: any) {
+      console.warn('[OCR] Z.AI Direct не сработал:', e2.message)
+    }
+
     // Понятное сообщение для пользователя
     const msg = e.message || ''
     if (msg.includes('429') || msg.includes('лимит')) {
       throw new Error(
-        'Z.AI: превышен лимит запросов.\n\n' +
+        'Превышен лимит запросов.\n\n' +
         'Что делать:\n' +
         '• Подождите 1-2 минуты — лимит сбросится\n' +
         '• Не отправляйте несколько запросов одновременно\n' +
-        '• На бесплатном тарифе Z.AI лимит ~5 запросов/мин\n' +
-        '• Для интенсивного использования оплатите тариф на https://open.bigmodel.cn\n\n' +
-        'Или используйте «Ручной ввод данных исследования» ниже.'
+        '• Используйте «Ручной ввод данных исследования» ниже'
       )
     }
     if (msg.includes('401')) {
       throw new Error(
-        'Неверный Z.AI API ключ.\n\n' +
+        'Неверный API ключ.\n\n' +
         'Что делать:\n' +
         '• Нажмите ✨ в правом нижнем углу\n' +
-        '• Проверьте ключ (скопируйте заново с https://open.bigmodel.cn)\n' +
-        '• Нажмите «Использовать ключ по умолчанию» если хотите вернуть предустановленный'
+        '• Проверьте ключ AnyModel или Z.AI'
       )
     }
     if (msg.includes('Failed to fetch') || msg.includes('Network') || msg.includes('ERR_')) {
       throw new Error(
-        'Не удалось связаться с Z.AI (ошибка сети).\n\n' +
+        'Не удалось связаться с AI (ошибка сети).\n\n' +
         'Что делать:\n' +
         '• Проверьте интернет-соединение\n' +
         '• Отключите блокировщики рекламы (AdBlock/uBlock) для этого сайта\n' +
@@ -366,7 +489,6 @@ export async function ocrImageDirect(imageDataUrl: string, fileName?: string): P
         '• Попробуйте через 1-2 минуты'
       )
     }
-    // Другая ошибка — передаём как есть
     throw e
   }
 }
