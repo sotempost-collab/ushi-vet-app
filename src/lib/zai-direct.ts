@@ -149,22 +149,55 @@ ${voiceNotesSummary || 'нет голосовых заметок'}
 Учитывай вид пациента (${patient.species === 'cat' ? 'Кошка: метаболизм отличается, парацетамол/карпрофен нельзя' : 'Собака'}).`
 
   let response: Response
-  try {
-    response = await fetch(WORKER_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'glm-4.5-air',
-        messages: [
-          { role: 'system', content: 'Ты ветеринарный эксперт-консультант. Отвечаешь на русском языке, в медицинском стиле.' },
-          { role: 'user', content: prompt },
-        ],
-        thinking: { type: 'disabled' },
-      }),
-    })
-  } catch (e) {
-    const err = e instanceof Error ? e : new Error(String(e))
-    throw new Error(`Сеть недоступна (Worker): ${err.message}. Проверьте интернет-соединение.`)
+  // 🆕 Retry 3 раза при сетевых ошибках
+  const MAX_ATTEMPTS = 3
+  const RETRY_DELAY_MS = 1500
+  let lastError: Error | null = null
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 60000)
+
+    try {
+      console.log(`[AI] Попытка ${attempt}/${MAX_ATTEMPTS} отправить на Worker...`)
+      response = await fetch(WORKER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'glm-4.5-air',
+          messages: [
+            { role: 'system', content: 'Ты ветеринарный эксперт-консультант. Отвечаешь на русском языке, в медицинском стиле.' },
+            { role: 'user', content: prompt },
+          ],
+          thinking: { type: 'disabled' },
+        }),
+        signal: controller.signal,
+      })
+      clearTimeout(timeoutId)
+      break // успешно — выходим из retry loop
+    } catch (e) {
+      clearTimeout(timeoutId)
+      const err = e instanceof Error ? e : new Error(String(e))
+      lastError = err
+      console.warn(`[AI] Попытка ${attempt} не удалась:`, err.message)
+
+      if (attempt === MAX_ATTEMPTS) {
+        break
+      }
+      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS))
+    }
+  }
+
+  if (!response!) {
+    const errMsg = lastError?.message || 'неизвестная ошибка'
+    throw new Error(
+      `Сеть недоступна (Worker): ${errMsg}\n\n` +
+      `Что попробовать:\n` +
+      `• Проверьте интернет-соединение\n` +
+      `• Отключите блокировщики рекламы (AdBlock/uBlock) для этого сайта\n` +
+      `• Попробуйте через 1-2 минуты\n` +
+      `• Попробуйте другую сеть`
+    )
   }
 
   if (!response.ok) {
@@ -225,53 +258,108 @@ export async function ocrImageDirect(imageDataUrl: string, fileName?: string): P
 
 Название файла: ${guessFileName(imageDataUrl, fileName)}`
 
-  let response: Response
-  try {
-    response = await fetch(WORKER_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'glm-4.5v',
-        messages: [
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: prompt },
-              { type: 'image_url', image_url: { url: finalDataUrl } },
-            ],
-          },
+  const requestBody = JSON.stringify({
+    model: 'glm-4.5v',
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: prompt },
+          { type: 'image_url', image_url: { url: finalDataUrl } },
         ],
-        thinking: { type: 'disabled' },
-      }),
-    })
-  } catch (e) {
-    const err = e instanceof Error ? e : new Error(String(e))
-    throw new Error(`Сеть недоступна (Worker): ${err.message}. Проверьте интернет-соединение.`)
-  }
+      },
+    ],
+    thinking: { type: 'disabled' },
+  })
 
-  if (!response.ok) {
-    let errorText = ''
-    try { errorText = await response.text() } catch {}
-    // 1010 — Cloudflare bot-fight, 403 — firewall, 413 — payload too large
-    if (response.status === 413) {
-      throw new Error(`Файл слишком большой даже после сжатия${sizeInfo}. Сделайте скриншот меньшего размера.`)
+  // 🆕 Retry с задержкой: при "Failed to fetch" пытаемся 3 раза.
+  // Это помогает если Worker временно недоступен или Cloudflare bot-fight блокирует.
+  const MAX_ATTEMPTS = 3
+  const RETRY_DELAY_MS = 1500
+  let lastError: Error | null = null
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    // AbortController с timeout 60 сек — на случай если fetch зависнет
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 60000)
+
+    try {
+      console.log(`[OCR] Попытка ${attempt}/${MAX_ATTEMPTS} отправить на Worker...`)
+      const response = await fetch(WORKER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: requestBody,
+        signal: controller.signal,
+      })
+      clearTimeout(timeoutId)
+
+      if (!response.ok) {
+        let errorText = ''
+        try { errorText = await response.text() } catch {}
+        if (response.status === 413) {
+          throw new Error(`Файл слишком большой даже после сжатия${sizeInfo}. Сделайте скриншот меньшего размера.`)
+        }
+        if (response.status === 403) {
+          // 403 — это Cloudflare bot-fight. Пробуем ещё раз с задержкой.
+          console.warn(`[OCR] 403 от Cloudflare (попытка ${attempt})`)
+          if (attempt < MAX_ATTEMPTS) {
+            await new Promise((r) => setTimeout(r, RETRY_DELAY_MS))
+            continue
+          }
+          throw new Error(`Доступ к AI-прокси запрещён (403). Попробуйте через 1-2 минуты.`)
+        }
+        throw new Error(`Ошибка OCR (HTTP ${response.status}). ${errorText.slice(0, 200)}`)
+      }
+
+      let result: any
+      try {
+        result = await response.json()
+      } catch (e) {
+        throw new Error('Некорректный JSON-ответ от Worker. Возможно, прокси временно недоступен.')
+      }
+
+      const content = result?.choices?.[0]?.message?.content
+      if (!content) {
+        throw new Error('AI вернул пустой ответ. Попробуйте ещё раз.')
+      }
+      return content
+    } catch (e) {
+      clearTimeout(timeoutId)
+      const err = e instanceof Error ? e : new Error(String(e))
+      lastError = err
+      console.warn(`[OCR] Попытка ${attempt} не удалась:`, err.message)
+
+      // AbortError (timeout) — пробуем снова
+      // "Failed to fetch" (network) — пробуем снова
+      // Для других ошибок (4xx, 5xx) — retry не нужен, но мы уже проверили выше
+      const isRetryable = (
+        err.name === 'AbortError' ||
+        err.message.includes('Failed to fetch') ||
+        err.message.includes('NetworkError') ||
+        err.message.includes('network') ||
+        err.message.includes('Load failed') ||
+        err.message.includes('The operation was aborted') ||
+        err.message.includes('ERR_')
+      )
+
+      if (!isRetryable || attempt === MAX_ATTEMPTS) {
+        break
+      }
+
+      // Ждём перед следующей попыткой
+      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS))
     }
-    if (response.status === 403) {
-      throw new Error(`Доступ к AI-прокси запрещён (403). Попробуйте через 1-2 минуты.`)
-    }
-    throw new Error(`Ошибка OCR (HTTP ${response.status}). ${errorText.slice(0, 200)}`)
   }
 
-  let result: any
-  try {
-    result = await response.json()
-  } catch (e) {
-    throw new Error('Некорректный JSON-ответ от Worker. Возможно, прокси временно недоступен.')
-  }
-
-  const content = result?.choices?.[0]?.message?.content
-  if (!content) {
-    throw new Error('AI вернул пустой ответ. Попробуйте ещё раз.')
-  }
-  return content
+  // Все попытки провалились — формируем понятное сообщение
+  const errMsg = lastError?.message || 'неизвестная ошибка'
+  throw new Error(
+    `Сеть недоступна (Worker): ${errMsg}\n\n` +
+    `Что попробовать:\n` +
+    `• Проверьте интернет-соединение\n` +
+    `• Отключите блокировщики рекламы (AdBlock/uBlock) для этого сайта — они могут блокировать запросы к AI\n` +
+    `• Попробуйте другую сеть (например, мобильный интернет вместо Wi-Fi)\n` +
+    `• Попробуйте через 1-2 минуты — Worker мог временно недоступен\n\n` +
+    `Если ошибка повторяется — используйте «Ручной ввод данных исследования» ниже.`
+  )
 }
