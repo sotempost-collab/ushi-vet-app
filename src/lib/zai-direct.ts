@@ -84,6 +84,24 @@ async function resizeImageToJpegDataUrl(dataUrl: string): Promise<{ dataUrl: str
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// Очередь запросов — чтобы не превышать лимит Z.AI (5 запросов/мин)
+// ─────────────────────────────────────────────────────────────────────
+
+let lastRequestTime = 0
+const MIN_INTERVAL_MS = 2000  // минимум 2 секунды между запросами
+
+async function waitForRateLimit() {
+  const now = Date.now()
+  const elapsed = now - lastRequestTime
+  if (elapsed < MIN_INTERVAL_MS) {
+    const wait = MIN_INTERVAL_MS - elapsed
+    console.log(`[Z.AI] Ждём ${wait}мс для соблюдения лимита...`)
+    await new Promise((r) => setTimeout(r, wait))
+  }
+  lastRequestTime = Date.now()
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Z.AI Direct API — основной вызов
 // ─────────────────────────────────────────────────────────────────────
 
@@ -92,7 +110,9 @@ async function callZaiDirect(
   messages: any[],
   options: { maxAttempts?: number; timeoutMs?: number } = {}
 ): Promise<string> {
-  const { maxAttempts = 3, timeoutMs = 60000 } = options
+  // Увеличил до 5 попыток с длительными задержками — на бесплатном тарифе Z.AI
+  // лимит ~5-10 запросов/мин, нужен долгий backoff
+  const { maxAttempts = 5, timeoutMs = 60000 } = options
   const apiKey = getZaiApiKey()
 
   let lastError: Error | null = null
@@ -103,6 +123,8 @@ async function callZaiDirect(
 
     try {
       console.log(`[Z.AI] Попытка ${attempt}/${maxAttempts} → ${model}`)
+      // 🆕 Ждём чтобы не превысить лимит запросов
+      await waitForRateLimit()
       const response = await fetch(ZAI_API_URL, {
         method: 'POST',
         headers: {
@@ -121,17 +143,28 @@ async function callZaiDirect(
       if (!response.ok) {
         let errorText = ''
         try { errorText = await response.text() } catch {}
+
         if (response.status === 401) {
           throw new Error(`Неверный Z.AI API ключ (401). ${errorText.slice(0, 200)}`)
         }
+
         if (response.status === 429) {
-          console.warn('[Z.AI] Rate limit (429) — повтор через 2с')
+          // 429 = Rate Limit. На бесплатном тарифе Z.AI лимит ~5 запросов/мин.
+          // Делаем экспоненциальный backoff: 10с, 30с, 60с, 90с.
+          const delays = [10000, 30000, 60000, 90000]
+          const delay = delays[Math.min(attempt - 1, delays.length - 1)]
+          console.warn(`[Z.AI] Rate limit (429) — попытка ${attempt}/${maxAttempts}, ждём ${delay/1000}с...`)
           if (attempt < maxAttempts) {
-            await new Promise((r) => setTimeout(r, 2000))
+            await new Promise((r) => setTimeout(r, delay))
             continue
           }
-          throw new Error(`Z.AI: лимит запросов (429). Подождите минуту.`)
+          throw new Error(
+            `Z.AI: превышен лимит запросов (429). Вы подождите 1-2 минуты и попробуйте снова.\n\n` +
+            `На бесплатном тарифе Z.AI лимит ~5 запросов в минуту. ` +
+            `Если нужно больше — оплатите тариф на https://open.bigmodel.cn`
+          )
         }
+
         throw new Error(`Z.AI HTTP ${response.status}. ${errorText.slice(0, 200)}`)
       }
 
@@ -152,17 +185,22 @@ async function callZaiDirect(
       lastError = e
       console.warn(`[Z.AI] Попытка ${attempt} не удалась: ${e?.message}`)
       const isLast = attempt === maxAttempts
+      // 429 — retry делается выше через continue, не повторяем тут
+      if (e?.message?.includes('429')) {
+        if (isLast) throw e
+        continue
+      }
       const isRetryable = (
         e?.name === 'AbortError' ||
         e?.message?.includes('Failed to fetch') ||
         e?.message?.includes('NetworkError') ||
         e?.message?.includes('Load failed') ||
         e?.message?.includes('The operation was aborted') ||
-        e?.message?.includes('ERR_') ||
-        e?.message?.includes('429')
+        e?.message?.includes('ERR_')
       )
       if (!isRetryable || isLast) throw e
-      await new Promise((r) => setTimeout(r, 1500))
+      // Короткая задержка для network ошибок
+      await new Promise((r) => setTimeout(r, 2000))
     }
   }
 
@@ -289,10 +327,47 @@ export async function ocrImageDirect(imageDataUrl: string, fileName?: string): P
 
   // 3) Z.AI Direct (glm-4.5v) — единственный источник OCR
   console.log('[OCR] Z.AI Direct (glm-4.5v)')
-  const result = await callZaiDirect('glm-4.5v', messages)
-  if (result && result.trim().length > 0) {
-    return result
+  try {
+    const result = await callZaiDirect('glm-4.5v', messages)
+    if (result && result.trim().length > 0) {
+      return result
+    }
+    throw new Error('Z.AI вернул пустой ответ. Попробуйте ещё раз.')
+  } catch (e: any) {
+    // Понятное сообщение для пользователя
+    const msg = e.message || ''
+    if (msg.includes('429') || msg.includes('лимит')) {
+      throw new Error(
+        'Z.AI: превышен лимит запросов.\n\n' +
+        'Что делать:\n' +
+        '• Подождите 1-2 минуты — лимит сбросится\n' +
+        '• Не отправляйте несколько запросов одновременно\n' +
+        '• На бесплатном тарифе Z.AI лимит ~5 запросов/мин\n' +
+        '• Для интенсивного использования оплатите тариф на https://open.bigmodel.cn\n\n' +
+        'Или используйте «Ручной ввод данных исследования» ниже.'
+      )
+    }
+    if (msg.includes('401')) {
+      throw new Error(
+        'Неверный Z.AI API ключ.\n\n' +
+        'Что делать:\n' +
+        '• Нажмите ✨ в правом нижнем углу\n' +
+        '• Проверьте ключ (скопируйте заново с https://open.bigmodel.cn)\n' +
+        '• Нажмите «Использовать ключ по умолчанию» если хотите вернуть предустановленный'
+      )
+    }
+    if (msg.includes('Failed to fetch') || msg.includes('Network') || msg.includes('ERR_')) {
+      throw new Error(
+        'Не удалось связаться с Z.AI (ошибка сети).\n\n' +
+        'Что делать:\n' +
+        '• Проверьте интернет-соединение\n' +
+        '• Отключите блокировщики рекламы (AdBlock/uBlock) для этого сайта\n' +
+        '• Попробуйте другую сеть (мобильный интернет вместо Wi-Fi)\n' +
+        '• Попробуйте через 1-2 минуты'
+      )
+    }
+    // Другая ошибка — передаём как есть
+    throw e
   }
-  throw new Error('Z.AI вернул пустой ответ. Попробуйте ещё раз.')
 }
 
