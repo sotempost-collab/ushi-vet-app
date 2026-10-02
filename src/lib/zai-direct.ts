@@ -10,7 +10,7 @@
  * Ключ по умолчанию встроен в код (DEFAULT_ZAI_API_KEY).
  * Пользователь может переопределить через localStorage 'zai_api_key'.
  *
- * Fallback: Tesseract.js (локальный OCR, работает офлайн).
+ * Только Z.AI Direct API. Локального OCR нет.
  */
 
 const ZAI_API_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions'
@@ -81,84 +81,6 @@ async function resizeImageToJpegDataUrl(dataUrl: string): Promise<{ dataUrl: str
     img.onerror = () => reject(new Error('Не удалось загрузить изображение в Image()'))
     img.src = dataUrl
   })
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// Canvas preprocessing для OCR (grayscale + контраст)
-// ─────────────────────────────────────────────────────────────────────
-
-async function preprocessImageForOcr(dataUrl: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const img = new Image()
-    img.onload = () => {
-      try {
-        const w = img.naturalWidth || img.width
-        const h = img.naturalHeight || img.height
-        const canvas = document.createElement('canvas')
-        canvas.width = w
-        canvas.height = h
-        const ctx = canvas.getContext('2d')
-        if (!ctx) {
-          reject(new Error('Canvas 2D context недоступен'))
-          return
-        }
-        ctx.fillStyle = '#ffffff'
-        ctx.fillRect(0, 0, w, h)
-        ctx.drawImage(img, 0, 0)
-
-        const imageData = ctx.getImageData(0, 0, w, h)
-        const data = imageData.data
-        const contrast = 1.5
-        const intercept = 128 * (1 - contrast)
-        for (let i = 0; i < data.length; i += 4) {
-          let gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]
-          gray = contrast * gray + intercept
-          gray = Math.max(0, Math.min(255, gray))
-          data[i] = gray
-          data[i + 1] = gray
-          data[i + 2] = gray
-        }
-        ctx.putImageData(imageData, 0, 0)
-        resolve(canvas.toDataURL('image/png'))
-      } catch (e) {
-        reject(e instanceof Error ? e : new Error('Ошибка preprocessing'))
-      }
-    }
-    img.onerror = () => reject(new Error('Не удалось загрузить изображение'))
-    img.src = dataUrl
-  })
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// Локальный OCR через Tesseract.js (fallback если Z.AI недоступен)
-// ─────────────────────────────────────────────────────────────────────
-
-async function ocrLocal(dataUrl: string): Promise<string> {
-  const { default: Tesseract } = await import('tesseract.js')
-
-  console.log('[OCR-Local] Запуск tesseract.js (русский + английский)...')
-  const t0 = Date.now()
-
-  const worker = await Tesseract.recognize(
-    dataUrl,
-    'rus+eng',
-    {
-      logger: (m: any) => {
-        if (m.status === 'recognizing text') {
-          console.log(`[OCR-Local] Прогресс: ${Math.round(m.progress * 100)}%`)
-        }
-      },
-      // @ts-ignore
-      tessedit_pageseg_mode: 'PSM_AUTO_OSD',
-      tessedit_ocr_engine_mode: 'OEM_LSTM_ONLY',
-      preserve_interword_spaces: '1',
-      tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯabcdefghijklmnopqrstuvwxyzабвгдеёжзийклмнопрстуфхцчшщъыьэюя0123456789.,:;-/+()=<>%№#°µмкММ/лЛмг%гдLЕдУаАbcCmзЗйЙиИтТяЯюЮ',
-    }
-  )
-
-  const text = worker.data.text || ''
-  console.log(`[OCR-Local] Готово за ${((Date.now() - t0) / 1000).toFixed(1)}s, символов: ${text.length}`)
-  return text
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -365,64 +287,12 @@ export async function ocrImageDirect(imageDataUrl: string, fileName?: string): P
     },
   ]
 
-  // 3) Z.AI Direct (glm-4.5v) — основной источник
-  try {
-    console.log('[OCR] Шаг 1: Z.AI Direct (glm-4.5v)')
-    const result = await callZaiDirect('glm-4.5v', messages)
-    if (result && result.trim().length > 30 && looksLikeText(result)) {
-      return result
-    }
-    console.warn('[OCR] Z.AI Direct вернул мусор — пробую tesseract')
-  } catch (e: any) {
-    console.warn('[OCR] Z.AI Direct не сработал:', e.message, '— пробую локальный tesseract')
+  // 3) Z.AI Direct (glm-4.5v) — единственный источник OCR
+  console.log('[OCR] Z.AI Direct (glm-4.5v)')
+  const result = await callZaiDirect('glm-4.5v', messages)
+  if (result && result.trim().length > 0) {
+    return result
   }
-
-  // 4) Fallback: локальный tesseract.js (работает офлайн)
-  try {
-    console.log('[OCR] Шаг 2: локальный tesseract.js (с preprocessing)')
-    let preprocessed = finalDataUrl
-    try {
-      preprocessed = await preprocessImageForOcr(finalDataUrl)
-    } catch (e) {
-      console.warn('[OCR] Preprocessing не удался, использую оригинал')
-    }
-
-    const localText = await ocrLocal(preprocessed)
-    if (localText && localText.trim().length > 20 && looksLikeText(localText)) {
-      console.log('[OCR] Tesseract вернул распознанный текст')
-      return localText + '\n\n⚠️ Текст распознан локальным OCR (tesseract.js) — проверьте корректность.'
-    }
-    console.warn('[OCR] Tesseract вернул слишком мало текста')
-  } catch (e: any) {
-    console.warn('[OCR] Tesseract не сработал:', e.message)
-  }
-
-  // 5) Все источники провалились
-  throw new Error(
-    'Не удалось распознать текст.\n\n' +
-    'Что попробовать:\n' +
-    '• Проверьте интернет-соединение\n' +
-    '• Попробуйте через 1-2 минуты\n' +
-    '• Используйте «Ручной ввод данных исследования» ниже'
-  )
+  throw new Error('Z.AI вернул пустой ответ. Попробуйте ещё раз.')
 }
 
-// Эвристическая проверка: похож ли текст на нормальный или это мусор
-function looksLikeText(text: string): boolean {
-  if (!text) return false
-  const trimmed = text.trim()
-  if (trimmed.length < 10) return false
-
-  const meaningfulChars = (trimmed.match(/[a-zA-Zа-яА-ЯёЁ0-9\s.,;:!?()\-+=/]/g) || []).length
-  const garbageChars = (trimmed.match(/[=_|<>~^*#@$&]/g) || []).length
-  const wordCount = (trimmed.match(/[a-zA-Zа-яА-ЯёЁ]{3,}/g) || []).length
-
-  const garbageRatio = garbageChars / trimmed.length
-  if (garbageRatio > 0.3) return false
-
-  if (wordCount < trimmed.length / 100) return false
-
-  if (meaningfulChars / trimmed.length < 0.5) return false
-
-  return true
-}
