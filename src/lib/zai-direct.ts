@@ -1,18 +1,23 @@
 /**
- * Z.AI / AnyModel / Tesseract — унифицированный доступ к AI.
+ * Z.AI Direct + AnyModel + Tesseract — унифицированный доступ к AI.
  *
  * Источники (по приоритету):
- * 1. Tesseract.js — локальный OCR в браузере (работает офлайн, не зависит от Worker).
- * 2. Cloudflare Worker (ushi-zai-proxy) — glm-4.5v для OCR и glm-4.5-air для текста.
- * 3. AnyModel.org — OpenAI-compatible API (если пользователь задаст ANYMODEL_API_KEY в localStorage).
+ * 1. Z.AI Direct API (open.bigmodel.cn) — если задан ZAI_API_KEY в localStorage.
+ *    Использует GLM-4.5-air (текст) и GLM-4.5v (vision/OCR) напрямую, БЕЗ Worker.
+ *    CORS поддерживается — можно вызывать прямо из браузера.
+ * 2. AnyModel.org — если задан ANYMODEL_API_KEY (альтернатива, OpenAI-compatible).
+ * 3. Cloudflare Worker (ushi-zai-proxy) — fallback, если нет ни одного ключа.
+ * 4. Tesseract.js — локальный OCR, если все сетевые источники недоступны.
  *
  * Storage keys (localStorage):
- * - `anymodel_api_key` — если задан, AI-запросы идут через AnyModel.org (вместо Worker).
- * - `anymodel_text_model` — модель для текста (по умолчанию "gpt-4o-mini").
- * - `anymodel_vision_model` — модель для vision/OCR (по умолчанию "gpt-4o").
+ * - `zai_api_key` — ключ Z.AI Direct (можно получить на https://open.bigmodel.cn)
+ * - `anymodel_api_key` — ключ AnyModel (альтернатива, можно получить на https://anymodel.org)
+ * - `anymodel_text_model` — модель для текста на AnyModel (по умолчанию "cx/gpt-5.6-sol")
+ * - `anymodel_vision_model` — модель для vision на AnyModel (по умолчанию "glm/glm-5.3-flash")
  */
 
 const WORKER_URL = 'https://ushi-zai-proxy.sotem-post.workers.dev'
+const ZAI_API_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions'
 const ANYMODEL_BASE_URL = 'https://anymodel.org/v1'
 
 // ─────────────────────────────────────────────────────────────────────
@@ -28,6 +33,11 @@ function guessFileName(dataUrl: string, fallback?: string): string {
   if (fallback) return fallback
   const m = dataUrl.match(/name=([^;]+)/)
   return m ? decodeURIComponent(m[1]) : 'image'
+}
+
+function getZaiApiKey(): string {
+  if (typeof window === 'undefined') return ''
+  return localStorage.getItem('zai_api_key') || ''
 }
 
 function getAnyModelApiKey(): string {
@@ -180,7 +190,94 @@ async function ocrLocal(dataUrl: string): Promise<string> {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// AI через Worker (Z.AI прокси)
+// AI через Z.AI Direct API (open.bigmodel.cn) — БЕЗ Worker!
+// ─────────────────────────────────────────────────────────────────────
+
+async function callZaiDirect(
+  apiKey: string,
+  model: string,
+  messages: any[],
+  options: { maxAttempts?: number; timeoutMs?: number } = {}
+): Promise<string> {
+  const { maxAttempts = 3, timeoutMs = 60000 } = options
+
+  let lastError: Error | null = null
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+
+    try {
+      console.log(`[Z.AI] Попытка ${attempt}/${maxAttempts} → ${model}`)
+      const response = await fetch(ZAI_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages,
+          thinking: { type: 'disabled' },
+        }),
+        signal: controller.signal,
+      })
+      clearTimeout(timeoutId)
+
+      if (!response.ok) {
+        let errorText = ''
+        try { errorText = await response.text() } catch {}
+        if (response.status === 401) {
+          localStorage.removeItem('zai_api_key')
+          throw new Error(`Неверный Z.AI API ключ (401). Ключ удалён.\n\n${errorText.slice(0, 200)}`)
+        }
+        if (response.status === 429) {
+          console.warn('[Z.AI] Rate limit (429) — повтор через 2с')
+          if (attempt < maxAttempts) {
+            await new Promise((r) => setTimeout(r, 2000))
+            continue
+          }
+          throw new Error(`Z.AI: лимит запросов (429). Подождите минуту.`)
+        }
+        throw new Error(`Z.AI HTTP ${response.status}. ${errorText.slice(0, 200)}`)
+      }
+
+      let result: any
+      try {
+        result = await response.json()
+      } catch {
+        throw new Error('Z.AI вернул некорректный JSON.')
+      }
+
+      const content = result?.choices?.[0]?.message?.content
+      if (!content) {
+        throw new Error('Z.AI вернул пустой ответ.')
+      }
+      return content
+    } catch (e: any) {
+      clearTimeout(timeoutId)
+      lastError = e
+      console.warn(`[Z.AI] Попытка ${attempt} не удалась: ${e?.message}`)
+      const isLast = attempt === maxAttempts
+      const isRetryable = (
+        e?.name === 'AbortError' ||
+        e?.message?.includes('Failed to fetch') ||
+        e?.message?.includes('NetworkError') ||
+        e?.message?.includes('Load failed') ||
+        e?.message?.includes('The operation was aborted') ||
+        e?.message?.includes('ERR_') ||
+        e?.message?.includes('429')
+      )
+      if (!isRetryable || isLast) throw e
+      await new Promise((r) => setTimeout(r, 1500))
+    }
+  }
+
+  throw lastError || new Error('Z.AI: все попытки провалились')
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// AI через Worker (Z.AI прокси) — fallback если нет ключа
 // ─────────────────────────────────────────────────────────────────────
 
 async function fetchWithRetry(
@@ -403,6 +500,18 @@ ${voiceNotesSummary || 'нет голосовых заметок'}
     { role: 'user', content: prompt },
   ]
 
+  // 1) Z.AI Direct (если задан ключ) — самый быстрый и надёжный
+  const zaiKey = getZaiApiKey()
+  if (zaiKey) {
+    console.log('[AI] Использую Z.AI Direct, модель: glm-4.5-air')
+    try {
+      return await callZaiDirect(zaiKey, 'glm-4.5-air', messages)
+    } catch (e: any) {
+      console.warn('[AI] Z.AI Direct не сработал:', e.message, '— переключаюсь на AnyModel')
+    }
+  }
+
+  // 2) AnyModel (если задан ключ) — альтернатива
   const anyModelKey = getAnyModelApiKey()
   if (anyModelKey) {
     console.log('[AI] Использую AnyModel.org, модель:', getAnyModelTextModel())
@@ -413,6 +522,7 @@ ${voiceNotesSummary || 'нет голосовых заметок'}
     }
   }
 
+  // 3) Worker — fallback если нет ни одного ключа
   console.log('[AI] Использую Worker (glm-4.5-air)')
   return callWorker('glm-4.5-air', messages)
 }
@@ -454,10 +564,25 @@ export async function ocrImageDirect(imageDataUrl: string, fileName?: string): P
     },
   ]
 
-  // 3) Сначала AnyModel (если задан API key)
+  // 3) Сначала Z.AI Direct (если задан ключ) — glm-4.5v vision, напрямую через Z.AI
+  const zaiKey = getZaiApiKey()
+  if (zaiKey) {
+    console.log('[OCR] Шаг 1: Z.AI Direct, модель: glm-4.5v')
+    try {
+      const result = await callZaiDirect(zaiKey, 'glm-4.5v', messages)
+      if (result && result.trim().length > 30 && looksLikeText(result)) {
+        return result
+      }
+      console.warn('[OCR] Z.AI Direct вернул мусор — пробую AnyModel')
+    } catch (e: any) {
+      console.warn('[OCR] Z.AI Direct не сработал:', e.message, '— пробую AnyModel')
+    }
+  }
+
+  // 4) AnyModel (если задан API key)
   const anyModelKey = getAnyModelApiKey()
   if (anyModelKey) {
-    console.log('[OCR] Шаг 1: AnyModel.org, модель:', getAnyModelVisionModel())
+    console.log('[OCR] Шаг 2: AnyModel.org, модель:', getAnyModelVisionModel())
     try {
       const result = await callAnyModel(anyModelKey, getAnyModelVisionModel(), messages)
       // Проверим что AnyModel вернул вменяемый результат (не мусор)
@@ -470,9 +595,9 @@ export async function ocrImageDirect(imageDataUrl: string, fileName?: string): P
     }
   }
 
-  // 4) Worker (если недоступен — fallback на tesseract)
+  // 5) Worker (если недоступен — fallback на tesseract)
   try {
-    console.log('[OCR] Шаг 2: Worker (glm-4.5v)')
+    console.log('[OCR] Шаг 3: Worker (glm-4.5v)')
     const result = await callWorker('glm-4.5v', messages)
     if (result && result.trim().length > 30 && looksLikeText(result)) {
       return result

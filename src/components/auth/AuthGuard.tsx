@@ -46,10 +46,12 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     initializeDefault()
   }, [initializeDefault])
 
-  // 🆕 Проверяем, задан ли AnyModel API key
+  // 🆕 Проверяем, задан ли какой-то AI ключ (Z.AI или AnyModel)
   useEffect(() => {
     const updateAnyModelState = () => {
-      setAnyModelActive(!!localStorage.getItem('anymodel_api_key'))
+      const hasZai = !!localStorage.getItem('zai_api_key')
+      const hasAnymodel = !!localStorage.getItem('anymodel_api_key')
+      setAnyModelActive(hasZai || hasAnymodel)
     }
     updateAnyModelState()
     // Обновляем состояние при открытии окна настроек
@@ -97,7 +99,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
               ? 'border-emerald-400 text-emerald-700 hover:bg-emerald-50'
               : 'border-amber-300 text-amber-700 hover:bg-amber-50'
           }`}
-          title={anyModelActive ? 'Настройки AI (AnyModel активен)' : 'Настройки AI (используется бесплатный Worker)'}
+          title={anyModelActive ? 'Настройки AI (AI подключён)' : 'Настройки AI (используется бесплатный Worker)'}
         >
           <Sparkles className="h-4 w-4" />
           {anyModelActive && (
