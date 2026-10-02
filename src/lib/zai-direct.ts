@@ -1,24 +1,23 @@
 /**
- * Z.AI Direct + AnyModel + Tesseract — унифицированный доступ к AI.
+ * Z.AI Direct API — генерация дифференциальных диагнозов и OCR.
  *
- * Источники (по приоритету):
- * 1. Z.AI Direct API (open.bigmodel.cn) — если задан ZAI_API_KEY в localStorage.
- *    Использует GLM-4.5-air (текст) и GLM-4.5v (vision/OCR) напрямую, БЕЗ Worker.
- *    CORS поддерживается — можно вызывать прямо из браузера.
- * 2. AnyModel.org — если задан ANYMODEL_API_KEY (альтернатива, OpenAI-compatible).
- * 3. Cloudflare Worker (ushi-zai-proxy) — fallback, если нет ни одного ключа.
- * 4. Tesseract.js — локальный OCR, если все сетевые источники недоступны.
+ * Источник: Z.AI (BigModel) — https://open.bigmodel.cn/api/paas/v4/chat/completions
+ * - glm-4.5-air — для текста (дифдиагнозы)
+ * - glm-4.5v — для vision (OCR сканов)
  *
- * Storage keys (localStorage):
- * - `zai_api_key` — ключ Z.AI Direct (можно получить на https://open.bigmodel.cn)
- * - `anymodel_api_key` — ключ AnyModel (альтернатива, можно получить на https://anymodel.org)
- * - `anymodel_text_model` — модель для текста на AnyModel (по умолчанию "cx/gpt-5.6-sol")
- * - `anymodel_vision_model` — модель для vision на AnyModel (по умолчанию "glm/glm-5.3-flash")
+ * CORS поддерживается — можно вызывать прямо из браузера без прокси.
+ *
+ * Ключ по умолчанию встроен в код (DEFAULT_ZAI_API_KEY).
+ * Пользователь может переопределить через localStorage 'zai_api_key'.
+ *
+ * Fallback: Tesseract.js (локальный OCR, работает офлайн).
  */
 
-const WORKER_URL = 'https://ushi-zai-proxy.sotem-post.workers.dev'
 const ZAI_API_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions'
-const ANYMODEL_BASE_URL = 'https://anymodel.org/v1'
+
+// 🔑 Ключ Z.AI API — вшит в код по запросу пользователя.
+// Если пользователь захочет переопределить — может задать localStorage 'zai_api_key'.
+const DEFAULT_ZAI_API_KEY = '3ab2bda735fc40a19a907f777a93dc7d.N1NGBDl7jh3uFNUW'
 
 // ─────────────────────────────────────────────────────────────────────
 // Утилиты
@@ -36,27 +35,12 @@ function guessFileName(dataUrl: string, fallback?: string): string {
 }
 
 function getZaiApiKey(): string {
-  if (typeof window === 'undefined') return ''
-  return localStorage.getItem('zai_api_key') || ''
-}
-
-function getAnyModelApiKey(): string {
-  if (typeof window === 'undefined') return ''
-  return localStorage.getItem('anymodel_api_key') || ''
-}
-
-function getAnyModelTextModel(): string {
-  if (typeof window === 'undefined') return 'cx/gpt-5.6-sol'
-  return localStorage.getItem('anymodel_text_model') || 'cx/gpt-5.6-sol'
-}
-
-function getAnyModelVisionModel(): string {
-  if (typeof window === 'undefined') return 'glm/glm-5.3-flash'
-  return localStorage.getItem('anymodel_vision_model') || 'glm/glm-5.3-flash'
+  if (typeof window === 'undefined') return DEFAULT_ZAI_API_KEY
+  return localStorage.getItem('zai_api_key') || DEFAULT_ZAI_API_KEY
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Canvas ресайз изображений (для Worker и AnyModel)
+// Canvas ресайз изображений (для Z.AI API)
 // ─────────────────────────────────────────────────────────────────────
 
 const MAX_IMAGE_DIM = 1600
@@ -122,26 +106,19 @@ async function preprocessImageForOcr(dataUrl: string): Promise<string> {
         ctx.fillRect(0, 0, w, h)
         ctx.drawImage(img, 0, 0)
 
-        // Получаем пиксели
         const imageData = ctx.getImageData(0, 0, w, h)
         const data = imageData.data
-
-        // Конвертация в grayscale + повышение контраста (1.5x)
         const contrast = 1.5
         const intercept = 128 * (1 - contrast)
         for (let i = 0; i < data.length; i += 4) {
-          // Grayscale (luminosity formula)
           let gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]
-          // Контраст
           gray = contrast * gray + intercept
-          // Clip
           gray = Math.max(0, Math.min(255, gray))
           data[i] = gray
           data[i + 1] = gray
           data[i + 2] = gray
         }
         ctx.putImageData(imageData, 0, 0)
-
         resolve(canvas.toDataURL('image/png'))
       } catch (e) {
         reject(e instanceof Error ? e : new Error('Ошибка preprocessing'))
@@ -153,20 +130,15 @@ async function preprocessImageForOcr(dataUrl: string): Promise<string> {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Локальный OCR через Tesseract.js (работает офлайн в браузере)
+// Локальный OCR через Tesseract.js (fallback если Z.AI недоступен)
 // ─────────────────────────────────────────────────────────────────────
 
 async function ocrLocal(dataUrl: string): Promise<string> {
-  // Динамический импорт — tesseract.js тяжёлый (~2MB), грузим только когда нужен
   const { default: Tesseract } = await import('tesseract.js')
 
   console.log('[OCR-Local] Запуск tesseract.js (русский + английский)...')
   const t0 = Date.now()
 
-  // Параметры tesseract для лучшего качества на сканах анализов:
-  // - PSM_AUTO_OSD (3) — автоопределение ориентации и сегментации
-  // - OEM_LSTM_ONLY (1) — современный LSTM engine (точнее чем default)
-  // - preserve_interword_spaces — сохранять пробелы между колонками
   const worker = await Tesseract.recognize(
     dataUrl,
     'rus+eng',
@@ -176,7 +148,7 @@ async function ocrLocal(dataUrl: string): Promise<string> {
           console.log(`[OCR-Local] Прогресс: ${Math.round(m.progress * 100)}%`)
         }
       },
-      // @ts-ignore — tesseract.js принимает эти параметры
+      // @ts-ignore
       tessedit_pageseg_mode: 'PSM_AUTO_OSD',
       tessedit_ocr_engine_mode: 'OEM_LSTM_ONLY',
       preserve_interword_spaces: '1',
@@ -190,16 +162,16 @@ async function ocrLocal(dataUrl: string): Promise<string> {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// AI через Z.AI Direct API (open.bigmodel.cn) — БЕЗ Worker!
+// Z.AI Direct API — основной вызов
 // ─────────────────────────────────────────────────────────────────────
 
 async function callZaiDirect(
-  apiKey: string,
   model: string,
   messages: any[],
   options: { maxAttempts?: number; timeoutMs?: number } = {}
 ): Promise<string> {
   const { maxAttempts = 3, timeoutMs = 60000 } = options
+  const apiKey = getZaiApiKey()
 
   let lastError: Error | null = null
 
@@ -228,8 +200,7 @@ async function callZaiDirect(
         let errorText = ''
         try { errorText = await response.text() } catch {}
         if (response.status === 401) {
-          localStorage.removeItem('zai_api_key')
-          throw new Error(`Неверный Z.AI API ключ (401). Ключ удалён.\n\n${errorText.slice(0, 200)}`)
+          throw new Error(`Неверный Z.AI API ключ (401). ${errorText.slice(0, 200)}`)
         }
         if (response.status === 429) {
           console.warn('[Z.AI] Rate limit (429) — повтор через 2с')
@@ -274,153 +245,6 @@ async function callZaiDirect(
   }
 
   throw lastError || new Error('Z.AI: все попытки провалились')
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// AI через Worker (Z.AI прокси) — fallback если нет ключа
-// ─────────────────────────────────────────────────────────────────────
-
-async function fetchWithRetry(
-  url: string,
-  body: any,
-  options: { maxAttempts?: number; timeoutMs?: number } = {}
-): Promise<Response> {
-  const { maxAttempts = 3, timeoutMs = 60000 } = options
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
-
-    try {
-      console.log(`[Fetch] Попытка ${attempt}/${maxAttempts} → ${url}`)
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      })
-      clearTimeout(timeoutId)
-      return response
-    } catch (e: any) {
-      clearTimeout(timeoutId)
-      const isLast = attempt === maxAttempts
-      const isRetryable = (
-        e?.name === 'AbortError' ||
-        e?.message?.includes('Failed to fetch') ||
-        e?.message?.includes('NetworkError') ||
-        e?.message?.includes('Load failed') ||
-        e?.message?.includes('The operation was aborted') ||
-        e?.message?.includes('ERR_')
-      )
-      console.warn(`[Fetch] Попытка ${attempt} не удалась: ${e?.message}`)
-      if (!isRetryable || isLast) throw e
-      await new Promise((r) => setTimeout(r, 1500))
-    }
-  }
-
-  throw new Error('Все попытки fetch провалились')
-}
-
-async function callWorker(
-  model: string,
-  messages: any[],
-  options: { maxAttempts?: number; timeoutMs?: number } = {}
-): Promise<string> {
-  const response = await fetchWithRetry(WORKER_URL, {
-    model,
-    messages,
-    thinking: { type: 'disabled' },
-  }, options)
-
-  if (!response.ok) {
-    let errorText = ''
-    try { errorText = await response.text() } catch {}
-    if (response.status === 413) {
-      throw new Error(`Запрос слишком большой даже после сжатия. Уменьшите изображение.`)
-    }
-    if (response.status === 403) {
-      throw new Error(`Доступ к AI-прокси запрещён (403). Попробуйте через 1-2 минуты.`)
-    }
-    throw new Error(`Ошибка AI (HTTP ${response.status}). ${errorText.slice(0, 200)}`)
-  }
-
-  let result: any
-  try {
-    result = await response.json()
-  } catch {
-    throw new Error('Некорректный JSON-ответ от Worker.')
-  }
-
-  const content = result?.choices?.[0]?.message?.content
-  if (!content) throw new Error('AI вернул пустой ответ.')
-  return content
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// AI через AnyModel.org (OpenAI-compatible)
-// ─────────────────────────────────────────────────────────────────────
-
-async function callAnyModel(
-  apiKey: string,
-  model: string,
-  messages: any[],
-  options: { maxAttempts?: number; timeoutMs?: number } = {}
-): Promise<string> {
-  const response = await fetchWithRetry(
-    `${ANYMODEL_BASE_URL}/chat/completions`,
-    {
-      model,
-      messages,
-      max_tokens: 4000,
-    },
-    {
-      ...options,
-      // AnyModel требует Authorization header — добавим через body обёртку
-    }
-  ).catch(async (e) => {
-    // Сделаем ручной fetch с Authorization (наш fetchWithRetry не добавляет Authorization)
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), options.timeoutMs || 60000)
-    try {
-      return await fetch(`${ANYMODEL_BASE_URL}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model,
-          messages,
-          max_tokens: 4000,
-        }),
-        signal: controller.signal,
-      })
-    } finally {
-      clearTimeout(timeoutId)
-    }
-  })
-
-  if (!response.ok) {
-    let errorText = ''
-    try { errorText = await response.text() } catch {}
-    if (response.status === 401) {
-      // Удаляем невалидный ключ
-      localStorage.removeItem('anymodel_api_key')
-      throw new Error(`Неверный API ключ AnyModel (401). Ключ удалён — переключаюсь на Worker.\n\n${errorText.slice(0, 200)}`)
-    }
-    throw new Error(`Ошибка AnyModel (HTTP ${response.status}). ${errorText.slice(0, 200)}`)
-  }
-
-  let result: any
-  try {
-    result = await response.json()
-  } catch {
-    throw new Error('Некорректный JSON-ответ от AnyModel.')
-  }
-
-  const content = result?.choices?.[0]?.message?.content
-  if (!content) throw new Error('AnyModel вернул пустой ответ.')
-  return content
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -500,37 +324,14 @@ ${voiceNotesSummary || 'нет голосовых заметок'}
     { role: 'user', content: prompt },
   ]
 
-  // 1) Z.AI Direct (если задан ключ) — самый быстрый и надёжный
-  const zaiKey = getZaiApiKey()
-  if (zaiKey) {
-    console.log('[AI] Использую Z.AI Direct, модель: glm-4.5-air')
-    try {
-      return await callZaiDirect(zaiKey, 'glm-4.5-air', messages)
-    } catch (e: any) {
-      console.warn('[AI] Z.AI Direct не сработал:', e.message, '— переключаюсь на AnyModel')
-    }
-  }
-
-  // 2) AnyModel (если задан ключ) — альтернатива
-  const anyModelKey = getAnyModelApiKey()
-  if (anyModelKey) {
-    console.log('[AI] Использую AnyModel.org, модель:', getAnyModelTextModel())
-    try {
-      return await callAnyModel(anyModelKey, getAnyModelTextModel(), messages)
-    } catch (e: any) {
-      console.warn('[AI] AnyModel не сработал:', e.message, '— переключаюсь на Worker')
-    }
-  }
-
-  // 3) Worker — fallback если нет ни одного ключа
-  console.log('[AI] Использую Worker (glm-4.5-air)')
-  return callWorker('glm-4.5-air', messages)
+  console.log('[AI] Использую Z.AI Direct, модель: glm-4.5-air')
+  return callZaiDirect('glm-4.5-air', messages)
 }
 
 export async function ocrImageDirect(imageDataUrl: string, fileName?: string): Promise<string> {
   const originalMime = getMimeFromDataUrl(imageDataUrl)
 
-  // 1) Ресайз через canvas (для Worker и AnyModel)
+  // 1) Ресайз через canvas
   let finalDataUrl = imageDataUrl
   if (originalMime.startsWith('image/') && typeof document !== 'undefined') {
     try {
@@ -542,7 +343,7 @@ export async function ocrImageDirect(imageDataUrl: string, fileName?: string): P
     }
   }
 
-  // 2) Сначала пробуем AI через AnyModel или Worker (они лучше справляются со сканами)
+  // 2) Промпт для OCR
   const prompt = `Ты — ветеринарный помощник. Перед тобой скан ветеринарного исследования.
 Извлеки и структурируй ВЕСЬ текст с изображения, сохраняя:
 1. Название исследования / заголовок
@@ -564,53 +365,21 @@ export async function ocrImageDirect(imageDataUrl: string, fileName?: string): P
     },
   ]
 
-  // 3) Сначала Z.AI Direct (если задан ключ) — glm-4.5v vision, напрямую через Z.AI
-  const zaiKey = getZaiApiKey()
-  if (zaiKey) {
-    console.log('[OCR] Шаг 1: Z.AI Direct, модель: glm-4.5v')
-    try {
-      const result = await callZaiDirect(zaiKey, 'glm-4.5v', messages)
-      if (result && result.trim().length > 30 && looksLikeText(result)) {
-        return result
-      }
-      console.warn('[OCR] Z.AI Direct вернул мусор — пробую AnyModel')
-    } catch (e: any) {
-      console.warn('[OCR] Z.AI Direct не сработал:', e.message, '— пробую AnyModel')
-    }
-  }
-
-  // 4) AnyModel (если задан API key)
-  const anyModelKey = getAnyModelApiKey()
-  if (anyModelKey) {
-    console.log('[OCR] Шаг 2: AnyModel.org, модель:', getAnyModelVisionModel())
-    try {
-      const result = await callAnyModel(anyModelKey, getAnyModelVisionModel(), messages)
-      // Проверим что AnyModel вернул вменяемый результат (не мусор)
-      if (result && result.trim().length > 30 && looksLikeText(result)) {
-        return result
-      }
-      console.warn('[OCR] AnyModel вернул мусор — пробую Worker')
-    } catch (e: any) {
-      console.warn('[OCR] AnyModel не сработал:', e.message, '— пробую Worker')
-    }
-  }
-
-  // 5) Worker (если недоступен — fallback на tesseract)
+  // 3) Z.AI Direct (glm-4.5v) — основной источник
   try {
-    console.log('[OCR] Шаг 3: Worker (glm-4.5v)')
-    const result = await callWorker('glm-4.5v', messages)
+    console.log('[OCR] Шаг 1: Z.AI Direct (glm-4.5v)')
+    const result = await callZaiDirect('glm-4.5v', messages)
     if (result && result.trim().length > 30 && looksLikeText(result)) {
       return result
     }
-    console.warn('[OCR] Worker вернул мусор — пробую tesseract')
+    console.warn('[OCR] Z.AI Direct вернул мусор — пробую tesseract')
   } catch (e: any) {
-    console.warn('[OCR] Worker не сработал:', e.message, '— пробую локальный tesseract')
+    console.warn('[OCR] Z.AI Direct не сработал:', e.message, '— пробую локальный tesseract')
   }
 
-  // 5) Fallback: локальный tesseract.js (работает офлайн)
+  // 4) Fallback: локальный tesseract.js (работает офлайн)
   try {
-    console.log('[OCR] Шаг 3: локальный tesseract.js (с preprocessing)')
-    // Preprocessing: grayscale + контраст для лучшего распознавания
+    console.log('[OCR] Шаг 2: локальный tesseract.js (с preprocessing)')
     let preprocessed = finalDataUrl
     try {
       preprocessed = await preprocessImageForOcr(finalDataUrl)
@@ -621,21 +390,20 @@ export async function ocrImageDirect(imageDataUrl: string, fileName?: string): P
     const localText = await ocrLocal(preprocessed)
     if (localText && localText.trim().length > 20 && looksLikeText(localText)) {
       console.log('[OCR] Tesseract вернул распознанный текст')
-      return localText + '\n\n⚠️ Текст распознан локальным OCR (tesseract.js) — проверьте корректность. Для лучшего качества подключите AnyModel API key или используйте ручной ввод.'
+      return localText + '\n\n⚠️ Текст распознан локальным OCR (tesseract.js) — проверьте корректность.'
     }
     console.warn('[OCR] Tesseract вернул слишком мало текста')
   } catch (e: any) {
     console.warn('[OCR] Tesseract не сработал:', e.message)
   }
 
-  // 6) Все источники провалились — понятное сообщение
+  // 5) Все источники провалились
   throw new Error(
-    'Не удалось распознать текст ни одним из доступных источников (AnyModel, Worker, Tesseract).\n\n' +
+    'Не удалось распознать текст.\n\n' +
     'Что попробовать:\n' +
-    '• Подключите AnyModel API key: F12 → Console → localStorage.setItem(\'anymodel_api_key\', \'ВАШ_КЛЮЧ\')\n' +
-    '  Получить ключ: https://anymodel.org (платный, $0.25/1M токенов)\n' +
-    '• Проверьте интернет-соединение (Worker требует доступ к Cloudflare)\n' +
-    '• Используйте «Ручной ввод данных исследования» ниже — введите данные вручную'
+    '• Проверьте интернет-соединение\n' +
+    '• Попробуйте через 1-2 минуты\n' +
+    '• Используйте «Ручной ввод данных исследования» ниже'
   )
 }
 
@@ -645,21 +413,15 @@ function looksLikeText(text: string): boolean {
   const trimmed = text.trim()
   if (trimmed.length < 10) return false
 
-  // Считаем "осмысленные" символы: буквы, цифры, основные знаки препинания
   const meaningfulChars = (trimmed.match(/[a-zA-Zа-яА-ЯёЁ0-9\s.,;:!?()\-+=/]/g) || []).length
-  // Считаем "мусорные" символы: =, |, _, непечатные
   const garbageChars = (trimmed.match(/[=_|<>~^*#@$&]/g) || []).length
-  // Считаем строки с реальными словами (3+ буквы подряд)
   const wordCount = (trimmed.match(/[a-zA-Zа-яА-ЯёЁ]{3,}/g) || []).length
 
-  // Если "мусорных" символов больше 30% — это вероятно мусор
   const garbageRatio = garbageChars / trimmed.length
   if (garbageRatio > 0.3) return false
 
-  // Если слов меньше 3 на 100 символов — мало реального текста
   if (wordCount < trimmed.length / 100) return false
 
-  // Если meaningfulChars меньше 50% — не похоже на текст
   if (meaningfulChars / trimmed.length < 0.5) return false
 
   return true
