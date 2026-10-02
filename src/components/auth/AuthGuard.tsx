@@ -4,8 +4,9 @@ import { useState, useEffect } from 'react'
 import { useAuthStore } from '@/store/authStore'
 import { LoginPage } from '@/components/auth/LoginPage'
 import { UserManagement } from '@/components/auth/UserManagement'
+import { AiSettingsModal } from '@/components/auth/AiSettingsModal'
 import { Button } from '@/components/ui/button'
-import { Users, LogOut, User as UserIcon } from 'lucide-react'
+import { Users, LogOut, User as UserIcon, Sparkles } from 'lucide-react'
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
@@ -13,6 +14,10 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   const logout = useAuthStore((s) => s.logout)
   const initializeDefault = useAuthStore((s) => s.initializeDefault)
   const [showUserManagement, setShowUserManagement] = useState(false)
+  const [showAiSettings, setShowAiSettings] = useState(false)
+  // 🆕 Для индикации того, что AnyModel активен
+  const [anyModelActive, setAnyModelActive] = useState(false)
+
   // ⚠️ В статическом экспорте persist middleware гидратирует localStorage синхронно
   // при создании store. Но React SSR рендерит до этого.
   // Решение: используем hasHydrated + polling fallback.
@@ -40,6 +45,17 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     initializeDefault()
   }, [initializeDefault])
+
+  // 🆕 Проверяем, задан ли AnyModel API key
+  useEffect(() => {
+    const updateAnyModelState = () => {
+      setAnyModelActive(!!localStorage.getItem('anymodel_api_key'))
+    }
+    updateAnyModelState()
+    // Обновляем состояние при открытии окна настроек
+    window.addEventListener('storage', updateAnyModelState)
+    return () => window.removeEventListener('storage', updateAnyModelState)
+  }, [showAiSettings])
 
   // Пока не гидратированы — показываем loader
   if (!hydrated) {
@@ -71,6 +87,24 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
           </span>
         </div>
 
+        {/* 🆕 Кнопка настроек AI */}
+        <Button
+          onClick={() => setShowAiSettings(true)}
+          variant="outline"
+          size="sm"
+          className={`bg-white/95 backdrop-blur shadow-md h-10 w-10 p-0 ${
+            anyModelActive
+              ? 'border-emerald-400 text-emerald-700 hover:bg-emerald-50'
+              : 'border-amber-300 text-amber-700 hover:bg-amber-50'
+          }`}
+          title={anyModelActive ? 'Настройки AI (AnyModel активен)' : 'Настройки AI (используется бесплатный Worker)'}
+        >
+          <Sparkles className="h-4 w-4" />
+          {anyModelActive && (
+            <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-white" />
+          )}
+        </Button>
+
         {currentUser.role === 'admin' && (
           <Button
             onClick={() => setShowUserManagement(true)}
@@ -101,6 +135,12 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
       <UserManagement
         open={showUserManagement}
         onOpenChange={setShowUserManagement}
+      />
+
+      {/* 🆕 Окно настроек AI */}
+      <AiSettingsModal
+        open={showAiSettings}
+        onOpenChange={setShowAiSettings}
       />
     </>
   )
