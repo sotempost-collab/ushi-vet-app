@@ -18,9 +18,13 @@ interface AiSettingsModalProps {
 }
 
 export function AiSettingsModal({ open, onOpenChange }: AiSettingsModalProps) {
+  // 🆕 Дефолтные модели AnyModel.org (только модели доступные на AnyModel)
+  const DEFAULT_TEXT_MODEL = 'cx/gpt-5.6-sol'        // OpenAI GPT-5.6 Sol — дёшево и хорошо
+  const DEFAULT_VISION_MODEL = 'glm/glm-5.3-flash'  // GLM-5.3 Flash — multimodal (vision), дёшево
+
   const [apiKey, setApiKey] = useState('')
-  const [textModel, setTextModel] = useState('gpt-4o-mini')
-  const [visionModel, setVisionModel] = useState('gpt-4o')
+  const [textModel, setTextModel] = useState(DEFAULT_TEXT_MODEL)
+  const [visionModel, setVisionModel] = useState(DEFAULT_VISION_MODEL)
   const [showKey, setShowKey] = useState(false)
   const [saved, setSaved] = useState(false)
 
@@ -28,8 +32,9 @@ export function AiSettingsModal({ open, onOpenChange }: AiSettingsModalProps) {
   useEffect(() => {
     if (open) {
       const key = localStorage.getItem('anymodel_api_key') || ''
-      const tm = localStorage.getItem('anymodel_text_model') || 'gpt-4o-mini'
-      const vm = localStorage.getItem('anymodel_vision_model') || 'gpt-4o'
+      // Если в localStorage пусто или стоит старое значение (gpt-4o), заменим на новый дефолт
+      const tm = localStorage.getItem('anymodel_text_model') || DEFAULT_TEXT_MODEL
+      const vm = localStorage.getItem('anymodel_vision_model') || DEFAULT_VISION_MODEL
       setApiKey(key)
       setTextModel(tm)
       setVisionModel(vm)
@@ -43,8 +48,8 @@ export function AiSettingsModal({ open, onOpenChange }: AiSettingsModalProps) {
     } else {
       localStorage.removeItem('anymodel_api_key')
     }
-    localStorage.setItem('anymodel_text_model', textModel.trim() || 'gpt-4o-mini')
-    localStorage.setItem('anymodel_vision_model', visionModel.trim() || 'gpt-4o')
+    localStorage.setItem('anymodel_text_model', textModel.trim() || DEFAULT_TEXT_MODEL)
+    localStorage.setItem('anymodel_vision_model', visionModel.trim() || DEFAULT_VISION_MODEL)
     setSaved(true)
     setTimeout(() => {
       onOpenChange(false)
@@ -70,7 +75,7 @@ export function AiSettingsModal({ open, onOpenChange }: AiSettingsModalProps) {
             Настройки AI
           </DialogTitle>
           <DialogDescription>
-            Подключите AnyModel.org для использования GPT-4o, Claude, Gemini вместо бесплатного Worker.
+            Подключите AnyModel.org для использования GPT-5.6, Claude, GLM, Grok вместо бесплатного Worker.
             Это улучшит качество OCR и дифференциальных диагнозов.
           </DialogDescription>
         </DialogHeader>
@@ -136,11 +141,18 @@ export function AiSettingsModal({ open, onOpenChange }: AiSettingsModalProps) {
             <Input
               value={textModel}
               onChange={(e) => setTextModel(e.target.value)}
-              placeholder="gpt-4o-mini"
+              placeholder={DEFAULT_TEXT_MODEL}
               className="font-mono text-sm"
             />
             <div className="text-xs text-muted-foreground">
-              Варианты: <code>gpt-4o-mini</code> (дёшево), <code>gpt-4o</code>, <code>claude-3-5-sonnet-20241022</code>, <code>gemini-1.5-pro</code>, <code>deepseek-chat</code>
+              <span className="font-medium">Доступные на AnyModel:</span>{' '}
+              <code>cx/gpt-5.6-sol</code> (по умолчанию, дёшево),{' '}
+              <code>cx/gpt-5.5</code>,{' '}
+              <code>cx/gpt-6-sol</code>,{' '}
+              <code>cx/gpt-6-astra</code>,{' '}
+              <code>cc/claude-sonnet-5</code>,{' '}
+              <code>cc/claude-opus-5</code>,{' '}
+              <code>gcli/grok-4.7</code>
             </div>
           </div>
 
@@ -150,11 +162,16 @@ export function AiSettingsModal({ open, onOpenChange }: AiSettingsModalProps) {
             <Input
               value={visionModel}
               onChange={(e) => setVisionModel(e.target.value)}
-              placeholder="gpt-4o"
+              placeholder={DEFAULT_VISION_MODEL}
               className="font-mono text-sm"
             />
             <div className="text-xs text-muted-foreground">
-              Варианты: <code>gpt-4o</code> (лучшее качество), <code>gpt-4o-mini</code>, <code>claude-3-5-sonnet-20241022</code>, <code>gemini-1.5-pro</code>
+              <span className="font-medium">Multimodal модели (с vision):</span>{' '}
+              <code>glm/glm-5.3-flash</code> (по умолчанию, дёшево),{' '}
+              <code>glm/glm-5.3</code>,{' '}
+              <code>kmc/k3</code> (Kimi K3)
+              <br />
+              <span className="italic">⚠️ Не используйте чисто-текстовые модели (gpt-5.6, claude-sonnet) для OCR — они не видят изображения.</span>
             </div>
           </div>
 

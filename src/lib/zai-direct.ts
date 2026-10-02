@@ -36,13 +36,13 @@ function getAnyModelApiKey(): string {
 }
 
 function getAnyModelTextModel(): string {
-  if (typeof window === 'undefined') return 'gpt-4o-mini'
-  return localStorage.getItem('anymodel_text_model') || 'gpt-4o-mini'
+  if (typeof window === 'undefined') return 'cx/gpt-5.6-sol'
+  return localStorage.getItem('anymodel_text_model') || 'cx/gpt-5.6-sol'
 }
 
 function getAnyModelVisionModel(): string {
-  if (typeof window === 'undefined') return 'gpt-4o'
-  return localStorage.getItem('anymodel_vision_model') || 'gpt-4o'
+  if (typeof window === 'undefined') return 'glm/glm-5.3-flash'
+  return localStorage.getItem('anymodel_vision_model') || 'glm/glm-5.3-flash'
 }
 
 // ─────────────────────────────────────────────────────────────────────
