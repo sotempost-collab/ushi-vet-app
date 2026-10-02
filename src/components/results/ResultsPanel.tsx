@@ -288,36 +288,72 @@ export function ResultsPanel() {
       return `${pad(minutes)}:${pad(seconds)}`
     }
 
-    // Строим HTML для печати
+    // Хелпер: делает строку в формате "**Метка:** значение" (метка жирная, новая строка)
+    const line = (label: string, value: string | number | null | undefined) => {
+      const v = value == null || value === '' ? '—' : String(value)
+      return `<p><strong>${label}:</strong> ${escapeHtml(v)}</p>`
+    }
+
+    // Хелпер: пустая строка-разделитель
+    const gap = () => '<p style="height:8px;margin:0;">&nbsp;</p>'
+
+    // Строим HTML для печати — простой текст, без таблиц, как в vetmanager выписке
     let html = `<!DOCTYPE html>
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>Протокол приёма — Ассистент УшиХвост</title>
+<title>Выписка из медицинской карты — Ассистент УшиХвост</title>
 <style>
   * { box-sizing: border-box; }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-    max-width: 800px;
+    font-family: 'Times New Roman', 'Liberation Serif', 'Noto Serif', serif;
+    max-width: 720px;
     margin: 0 auto;
-    padding: 32px;
-    color: #1a1a1a;
-    line-height: 1.5;
+    padding: 36px;
+    color: #000;
+    line-height: 1.55;
+    font-size: 13px;
   }
-  h1 { color: #047857; border-bottom: 3px solid #047857; padding-bottom: 8px; font-size: 22px; }
-  h2 { color: #047857; margin-top: 24px; font-size: 16px; border-bottom: 1px solid #d1fae5; padding-bottom: 4px; }
-  h3 { color: #065f46; font-size: 14px; margin-top: 16px; }
-  .meta { color: #6b7280; font-size: 13px; margin-bottom: 20px; }
-  .patient-info { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 12px 16px; margin: 12px 0; }
-  .patient-info strong { color: #047857; }
-  table { width: 100%; border-collapse: collapse; margin: 12px 0; }
-  th, td { border: 1px solid #d1d5db; padding: 8px; text-align: left; font-size: 13px; }
-  th { background: #f0fdf4; color: #047857; }
-  .deviation { background: #fef2f2; }
-  .normal { background: #f0fdf4; }
-  ul { padding-left: 20px; }
-  li { margin-bottom: 4px; font-size: 13px; }
-  .footer { margin-top: 40px; padding-top: 12px; border-top: 1px solid #e5e7eb; font-size: 11px; color: #6b7280; text-align: center; }
+  /* Заголовок документа — по центру, жирный */
+  .doc-title {
+    text-align: center;
+    font-size: 18px;
+    font-weight: bold;
+    margin: 8px 0 24px 0;
+    text-transform: uppercase;
+  }
+  /* Подзаголовки разделов — жирные, левая граница */
+  .section {
+    font-size: 14px;
+    font-weight: bold;
+    margin: 18px 0 6px 0;
+    padding-bottom: 3px;
+    border-bottom: 1px solid #888;
+  }
+  /* Строка "Метка: Значение" — каждое поле с новой строки */
+  p { margin: 2px 0; }
+  strong { font-weight: bold; }
+  /* Подзаголовок подраздела — центрированный, как "Первичный приём" */
+  .sub-section {
+    text-align: center;
+    font-size: 13px;
+    font-weight: bold;
+    margin: 14px 0 8px 0;
+  }
+  /* Длинный многострочный текст (анамнез, AI-заключение) */
+  .text-block {
+    margin: 4px 0 10px 0;
+    white-space: pre-wrap;
+  }
+  /* Подвал */
+  .footer {
+    margin-top: 40px;
+    padding-top: 8px;
+    border-top: 1px solid #aaa;
+    font-size: 10px;
+    color: #666;
+    text-align: center;
+  }
   @media print {
     body { padding: 0; max-width: none; }
     .no-print { display: none; }
@@ -326,112 +362,135 @@ export function ResultsPanel() {
 </style>
 </head>
 <body>
-<h1>Ветеринарный протокол</h1>
-<p class="meta">Сформирован: ${new Date().toLocaleString('ru-RU')} · Ассистент УшиХвост</p>
 
-<h2>Пациент</h2>
-<div class="patient-info">
-<p><strong>Вид:</strong> ${patient.species === 'dog' ? 'Собака' : patient.species === 'cat' ? 'Кошка' : 'Другое'}</p>
-<p><strong>Вес:</strong> ${patient.weight || '—'} кг</p>
-<p><strong>Дата приёма:</strong> ${patient.visitDate || '—'}</p>
-<p><strong>Длительность приёма:</strong> ${formatDuration(duration)}</p>
-</div>
+<div class="doc-title">Выписка из медицинской карты животного</div>
+<p style="text-align:center;color:#555;margin-top:-16px;margin-bottom:18px;">${new Date().toLocaleString('ru-RU')}</p>
 
-<h2>Анамнез</h2>
+<div class="section">Данные пациента</div>
+${line('Вид животного', patient.species === 'dog' ? 'Собака' : patient.species === 'cat' ? 'Кошка' : 'Другое')}
+${line('Вес', patient.weight ? `${patient.weight} кг` : '—')}
+${line('Дата приёма', patient.visitDate || '—')}
+${line('Длительность приёма', formatDuration(duration))}
+${gap()}
+
+<div class="section">Анамнез</div>
 `
 
     const anamnesisEntries = Object.entries(anamnesis).filter(([, v]) => v && String(v).trim())
     if (anamnesisEntries.length > 0) {
-      html += '<table><tr><th>Параметр</th><th>Значение</th></tr>'
       anamnesisEntries.forEach(([k, v]) => {
-        html += `<tr><td>${k}</td><td>${escapeHtml(v)}</td></tr>`
+        html += line(k, v)
       })
-      html += '</table>'
     } else {
       html += '<p>Анамнез не заполнен</p>'
     }
+    html += gap()
 
-    html += '<h2>Осмотр по системам</h2>'
+    // Осмотр по системам — без таблиц, просто строки "Параметр: статус — значение"
+    html += '<div class="section">Осмотр по системам</div>'
     let hasExamData = false
     for (const system of examinationSystems) {
       const params = examination[system.id] || []
       const evaluated = params.filter((p) => p.status)
       if (evaluated.length === 0) continue
       hasExamData = true
-      html += `<h3>${system.name}</h3>`
-      html += '<table><tr><th>Параметр</th><th>Статус</th><th>Значение/описание</th></tr>'
+      html += `<div class="sub-section">${system.name}</div>`
       for (const p of evaluated) {
-        const statusClass = p.status === 'deviation' ? 'deviation' : p.status === 'normal' ? 'normal' : ''
         const statusLabel = p.status === 'normal' ? 'Норма' : p.status === 'deviation' ? 'Отклонение' : 'Не оценено'
-        const val = p.deviationValue || (p.status === 'normal' ? 'В норме' : '') + (p.notes ? (p.deviationValue ? ' (' + p.notes + ')' : p.notes) : '')
-        html += `<tr class="${statusClass}"><td>${p.name}</td><td>${statusLabel}</td><td>${escapeHtml(val)}</td></tr>`
+        let val = p.deviationValue || (p.status === 'normal' ? 'В норме' : '')
+        if (p.notes) {
+          val = val ? `${val} (${p.notes})` : p.notes
+        }
+        html += line(p.name, `${statusLabel}${val ? ' — ' + val : ''}`)
       }
-      html += '</table>'
+      html += gap()
     }
     if (!hasExamData) {
       html += '<p>Данные осмотра не заполнены</p>'
+      html += gap()
     }
 
-    // Аускультация
+    // Аускультация сердца — без <ul>, просто строки
     if (auscultation.rhythm || auscultation.bpm || auscultation.murmurs || auscultation.notes) {
-      html += '<h2>Аускультация сердца</h2>'
-      html += `<ul>
-        <li><strong>Ритм:</strong> ${escapeHtml(auscultation.rhythm || '—')}</li>
-        <li><strong>ЧСС:</strong> ${escapeHtml(auscultation.bpm || '—')} уд/мин</li>
-        <li><strong>Шумы:</strong> ${escapeHtml(auscultation.murmurs || '—')}</li>
-        <li><strong>Комментарий:</strong> ${escapeHtml(auscultation.notes || '—')}</li>
-      </ul>`
+      html += '<div class="section">Аускультация сердца</div>'
+      html += line('Ритм', auscultation.rhythm)
+      html += line('ЧСС', auscultation.bpm ? `${auscultation.bpm} уд/мин` : '—')
+      html += line('Шумы', auscultation.murmurs)
+      html += line('Комментарий', auscultation.notes)
+      html += gap()
     }
 
-    // Загруженные исследования
+    // Загруженные исследования (OCR)
     const scansWithText = scans.filter((s) => s.ocrText)
     if (scansWithText.length > 0) {
-      html += '<h2>Загруженные исследования (OCR)</h2>'
+      html += '<div class="section">Загруженные исследования</div>'
       scansWithText.forEach((s, i) => {
-        html += `<h3>${i + 1}. ${escapeHtml(s.name)}</h3>`
-        html += `<pre style="white-space: pre-wrap; font-family: inherit; font-size: 12px; background: #f9fafb; padding: 8px; border-radius: 4px;">${escapeHtml(s.ocrText)}</pre>`
+        html += `<div class="sub-section">${i + 1}. ${escapeHtml(s.name)}</div>`
+        html += `<div class="text-block">${escapeHtml(s.ocrText)}</div>`
       })
+      html += gap()
     }
 
-    // Результаты / заключение
-    if (results.preliminaryDiagnoses || results.plannedExaminations || results.preliminaryPrescriptions || results.recommendations || aiResult) {
-      html += '<h2>Заключение</h2>'
+    // Заключение / AI-результаты
+    const hasConclusion = results.preliminaryDiagnoses || results.plannedExaminations || results.mandatoryDiagnostics || results.additionalDiagnostics || results.preliminaryPrescriptions || results.recommendations || aiResult
+    if (hasConclusion) {
+      html += '<div class="section">Заключение</div>'
+
+      // AI-заключение — выводим ПЕРВЫМ как единый блок (если есть)
+      if (aiResult) {
+        // Разобьём AI-ответ по заголовкам ### и вставим как subsection + text
+        const aiSections = aiResult.split(/^###\s+/m)
+        for (const sec of aiSections) {
+          const trimmed = sec.trim()
+          if (!trimmed) continue
+          // Первый абзац до \n — заголовок
+          const nlIdx = trimmed.indexOf('\n')
+          if (nlIdx > 0 && nlIdx < 100) {
+            const heading = trimmed.substring(0, nlIdx).trim()
+            const body = trimmed.substring(nlIdx + 1).trim()
+            html += `<div class="sub-section">${escapeHtml(heading)}</div>`
+            html += `<div class="text-block">${escapeHtml(body)}</div>`
+          } else {
+            // Без явного заголовка — выводим как есть
+            html += `<div class="text-block">${escapeHtml(trimmed)}</div>`
+          }
+        }
+        html += gap()
+      }
+
+      // Ручные поля (если врач что-то дописал)
       if (results.preliminaryDiagnoses) {
-        html += '<h3>Предварительные диагнозы</h3>'
-        html += `<p style="white-space: pre-wrap;">${escapeHtml(results.preliminaryDiagnoses)}</p>`
+        html += '<div class="sub-section">Предварительные диагнозы</div>'
+        html += `<div class="text-block">${escapeHtml(results.preliminaryDiagnoses)}</div>`
       }
       if (results.plannedExaminations) {
-        html += '<h3>Плановые обследования</h3>'
-        html += `<p style="white-space: pre-wrap;">${escapeHtml(results.plannedExaminations)}</p>`
+        html += '<div class="sub-section">Плановые обследования</div>'
+        html += `<div class="text-block">${escapeHtml(results.plannedExaminations)}</div>`
       }
       if (results.mandatoryDiagnostics) {
-        html += '<h3>Обязательная лабораторная и инструментальная диагностика</h3>'
-        html += `<p style="white-space: pre-wrap;">${escapeHtml(results.mandatoryDiagnostics)}</p>`
+        html += '<div class="sub-section">Обязательная лабораторная и инструментальная диагностика</div>'
+        html += `<div class="text-block">${escapeHtml(results.mandatoryDiagnostics)}</div>`
       }
       if (results.additionalDiagnostics) {
-        html += '<h3>Дополнительная визуализационная диагностика</h3>'
-        html += `<p style="white-space: pre-wrap;">${escapeHtml(results.additionalDiagnostics)}</p>`
+        html += '<div class="sub-section">Дополнительная визуализационная диагностика</div>'
+        html += `<div class="text-block">${escapeHtml(results.additionalDiagnostics)}</div>`
       }
       if (results.preliminaryPrescriptions) {
-        html += '<h3>Предварительные назначения (терапия)</h3>'
-        html += `<p style="white-space: pre-wrap;">${escapeHtml(results.preliminaryPrescriptions)}</p>`
+        html += '<div class="sub-section">Предварительные назначения (терапия)</div>'
+        html += `<div class="text-block">${escapeHtml(results.preliminaryPrescriptions)}</div>`
       }
       if (results.recommendations) {
-        html += '<h3>Рекомендации</h3>'
-        html += `<p style="white-space: pre-wrap;">${escapeHtml(results.recommendations)}</p>`
-      }
-      if (aiResult) {
-        html += '<h3>AI-заключение</h3>'
-        html += `<div style="white-space: pre-wrap;">${escapeHtml(aiResult)}</div>`
+        html += '<div class="sub-section">Рекомендации</div>'
+        html += `<div class="text-block">${escapeHtml(results.recommendations)}</div>`
       }
     }
 
-    html += `<div class="footer">Ассистент УшиХвост — вспомогательный инструмент врача. Окончательный диагноз ставится врачом после очной консультации.</div>`
+    html += '<div class="footer">Ассистент УшиХвост — вспомогательный инструмент врача. Окончательный диагноз ставится врачом после очной консультации.</div>'
 
     html += `
 <script>
   window.onload = function() {
-    window.print();
+    setTimeout(function() { window.print(); }, 500);
   };
 </script>
 </body>
