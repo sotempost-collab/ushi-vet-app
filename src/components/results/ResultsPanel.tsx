@@ -43,6 +43,27 @@ function escapeHtml(text: string): string {
     .replace(/'/g, '&#039;')
 }
 
+// 🆕 Хелпер: найти параметр в examinationSystems по id (для getNormalForSpecies)
+// examination store хранит { id, name, status, deviationValue, notes } — без normalBySpecies.
+// examinationSystems хранит полные данные с normalBySpecies.
+// Нужно найти соответствующий параметр в данных и вернуть его.
+function findExamParamInData(paramId: string, systemId: string) {
+  const system = examinationSystems.find((s) => s.id === systemId)
+  if (!system) return undefined
+  return system.params.find((p) => p.id === paramId)
+}
+
+// 🆕 Хелпер: получить норму для вида — безопасно (без crash если normalBySpecies нет)
+function safeGetNormalForSpecies(paramId: string, systemId: string, species: 'dog' | 'cat' | 'other'): string {
+  const dataParam = findExamParamInData(paramId, systemId)
+  if (!dataParam) return ''
+  try {
+    return getNormalForSpecies(dataParam, species) || ''
+  } catch {
+    return ''
+  }
+}
+
 export function ResultsPanel() {
   const patient = useVetStore((s) => s.patient)
   const anamnesis = useVetStore((s) => s.anamnesis)
@@ -296,7 +317,7 @@ export function ResultsPanel() {
         let val = ''
         if (p.status === 'normal') {
           // 🆕 Для нормы подставляем значение нормы из examinationData
-          val = getNormalForSpecies(p, patient.species) || 'в норме'
+          val = safeGetNormalForSpecies(p.id, system.id, patient.species) || 'в норме'
           if (p.notes) {
             val = `${val} (${p.notes})`
           }
@@ -607,7 +628,7 @@ ${gap()}
         let val = ''
         if (p.status === 'normal') {
           // 🆕 Для нормы — подставляем значение нормы из examinationData
-          val = getNormalForSpecies(p, patient.species) || 'в норме'
+          val = safeGetNormalForSpecies(p.id, system.id, patient.species) || 'в норме'
           if (p.notes) {
             val = `${val} (${p.notes})`
           }
@@ -989,7 +1010,7 @@ ${(() => {
       const statusLabel = p.status === 'normal' ? 'Норма' : 'Отклонение'
       let val = ''
       if (p.status === 'normal') {
-        val = getNormalForSpecies(p, patient.species) || 'в норме'
+        val = safeGetNormalForSpecies(p.id, system.id, patient.species) || 'в норме'
         if (p.notes) val = `\${val} (\${p.notes})`
       } else if (p.status === 'deviation') {
         val = p.deviationValue || 'отклонение'
