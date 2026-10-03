@@ -47,11 +47,11 @@ export const useAuthStore = create<AuthState>()(
 
       initializeDefault: () => {
         const state = get()
-        // Если вообще нет пользователей — создаём admin/admin
+        // Если вообще нет пользователей — создаём admin/A7225162
         if (state.users.length === 0) {
           const defaultAdmin: User = {
             username: 'admin',
-            password: simpleHash('admin'),
+            password: simpleHash('A7225162'),
             displayName: 'Главный врач (admin)',
             role: 'admin',
             createdAt: new Date().toISOString(),
@@ -59,20 +59,18 @@ export const useAuthStore = create<AuthState>()(
           set({ users: [defaultAdmin] })
           return
         }
-        // Если пользователи есть, но admin отсутствует — добавляем admin/admin
+        // Если пользователи есть, но admin отсутствует — добавляем admin/A7225162
         const hasAdmin = state.users.some((u) => u.username.toLowerCase() === 'admin')
         if (!hasAdmin) {
           const defaultAdmin: User = {
             username: 'admin',
-            password: simpleHash('admin'),
+            password: simpleHash('A7225162'),
             displayName: 'Главный врач (admin)',
             role: 'admin',
             createdAt: new Date().toISOString(),
           }
           set({ users: [...state.users, defaultAdmin] })
         }
-        // Замечание: НЕ перезаписываем пароль admin, если пользователь его изменил.
-        // Для сброса пароля есть кнопка «Сбросить данные аккаунта» в LoginPage.
       },
 
       login: (username, password) => {

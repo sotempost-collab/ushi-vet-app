@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
-import { PawPrint, LogIn, Eye, EyeOff, AlertCircle, Info, RefreshCw, Zap } from 'lucide-react'
+import { PawPrint, LogIn, Eye, EyeOff, AlertCircle } from 'lucide-react'
 
 export function LoginPage() {
   const login = useAuthStore((s) => s.login)
@@ -17,9 +17,7 @@ export function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const [showHint, setShowHint] = useState(true) // по умолчанию открыто — чтобы пользователь сразу видел admin/admin
 
-  // При первом открытии инициализируем admin по умолчанию
   useEffect(() => {
     initializeDefault()
   }, [initializeDefault])
@@ -27,59 +25,18 @@ export function LoginPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
-    // Если поля пустые (например, paste не сработал) — пробуем admin/admin
-    const u = username.trim() || 'admin'
-    const p = password || 'admin'
-    setLoading(true)
-    setTimeout(() => {
-      const result = login(u, p)
-      if (!result.success) {
-        setError(result.error || 'Ошибка входа. Попробуйте сбросить данные аккаунта.')
-        setLoading(false)
-      }
-      // если success — AuthGuard сам переключит
-    }, 200)
-  }
-
-  const handleDemoFill = () => {
-    setUsername('admin')
-    setPassword('admin')
-    setError('')
-  }
-
-  // 🆕 Быстрый вход одной кнопкой — обходит проблему paste/onChange
-  const handleQuickAdminLogin = () => {
-    setError('')
-    setLoading(true)
-    setUsername('admin')
-    setPassword('admin')
-    setTimeout(() => {
-      const result = login('admin', 'admin')
-      if (!result.success) {
-        setError(
-          result.error +
-          ' Нажмите «Сбросить данные аккаунта» ниже — это вернёт пароль admin/admin по умолчанию.',
-        )
-        setLoading(false)
-      }
-    }, 200)
-  }
-
-  // 🆕 Сброс данных аккаунта — удаляет всех пользователей и создаёт admin/admin заново
-  const handleResetAccount = () => {
-    if (
-      !confirm(
-        'Сбросить данные аккаунта? Будут удалены все пользователи и создан единственный admin с паролем admin.',
-      )
-    ) {
+    if (!username.trim() || !password) {
+      setError('Введите логин и пароль')
       return
     }
-    // Очищаем localStorage напрямую
-    localStorage.removeItem('ushihvost-auth-storage')
-    // Также очищаем vet-storage, чтобы избежать конфликтов
-    localStorage.removeItem('ushihvost-vet-storage')
-    // Принудительно перезагружаем — initializeDefault создаст admin/admin заново
-    window.location.reload()
+    setLoading(true)
+    setTimeout(() => {
+      const result = login(username, password)
+      if (!result.success) {
+        setError(result.error || 'Ошибка входа.')
+        setLoading(false)
+      }
+    }, 200)
   }
 
   return (
@@ -118,7 +75,7 @@ export function LoginPage() {
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="admin"
+                  placeholder="Логин"
                   autoComplete="username"
                   autoFocus
                   className="h-11"
@@ -156,11 +113,10 @@ export function LoginPage() {
               {error && (
                 <div className="p-3 rounded-md bg-rose-50 border border-rose-200 text-sm text-rose-700 flex items-start gap-2">
                   <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                  <span className="whitespace-pre-wrap">{error}</span>
+                  <span>{error}</span>
                 </div>
               )}
 
-              {/* Кнопка Войти — больше не disabled, валидация в handleSubmit */}
               <Button
                 type="submit"
                 disabled={loading}
@@ -178,61 +134,9 @@ export function LoginPage() {
                   </>
                 )}
               </Button>
-
-              {/* 🆕 Быстрый вход admin/admin одной кнопкой */}
-              <Button
-                type="button"
-                onClick={handleQuickAdminLogin}
-                disabled={loading}
-                variant="outline"
-                className="w-full h-11 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
-              >
-                <Zap className="h-4 w-4 mr-2" />
-                Быстрый вход: admin / admin
-              </Button>
             </form>
-
-            {/* Подсказка с admin/admin — теперь открыта по умолчанию */}
-            <div className="mt-4 p-3 rounded-md bg-amber-50 border border-amber-200 text-xs text-amber-800 space-y-2">
-              <div className="font-medium flex items-center gap-1">
-                <Info className="h-3.5 w-3.5" />
-                Учётная запись по умолчанию:
-              </div>
-              <div className="font-mono bg-amber-100 p-1.5 rounded text-center text-sm">
-                Логин: <strong>admin</strong> · Пароль: <strong>admin</strong>
-              </div>
-              <button
-                type="button"
-                onClick={handleDemoFill}
-                className="text-emerald-700 hover:text-emerald-900 underline"
-              >
-                Заполнить форму автоматически
-              </button>
-            </div>
-
-            {/* 🆕 Сброс данных аккаунта */}
-            <div className="mt-3 pt-3 border-t border-amber-200">
-              <div className="text-xs text-muted-foreground mb-2">
-                Не входит? Возможно, пароль был изменён ранее. Сбросьте данные аккаунта, чтобы вернуть
-                пароль по умолчанию (admin/admin).
-              </div>
-              <button
-                type="button"
-                onClick={handleResetAccount}
-                className="text-xs text-rose-700 hover:text-rose-900 underline flex items-center gap-1 mx-auto"
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-                Сбросить данные аккаунта
-              </button>
-            </div>
           </CardContent>
         </Card>
-
-        <p className="text-center text-xs text-muted-foreground">
-          🐾 Данные аккаунтов хранятся локально на этом устройстве.
-          <br />
-          Для командной работы нужен общий сервер — пока работает на одном устройстве.
-        </p>
       </div>
     </div>
   )
