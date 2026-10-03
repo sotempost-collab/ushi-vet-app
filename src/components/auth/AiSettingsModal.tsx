@@ -17,11 +17,10 @@ interface AiSettingsModalProps {
   onOpenChange: (open: boolean) => void
 }
 
-// 🔑 Ключи по умолчанию — вшиты в код, НО не показываются пользователю.
-// Используются автоматически. Если пользователь не задал свой ключ —
-// приложение использует вшитый (он не виден в UI).
-const DEFAULT_ANYMODEL_API_KEY = 'sk-dc9d4b7df36ba555-i2dh6j-2ec5b5b2'
-const DEFAULT_ZAI_API_KEY = '3ab2bda735fc40a19a907f777a93dc7d.N1NGBDl7jh3uFNUW'
+// 🔑 Ключи по умолчанию — вшиты в код в src/lib/zai-direct.ts (DEFAULT_ANYMODEL_API_KEY, DEFAULT_ZAI_API_KEY).
+// В этом файле НЕ храним значения ключей — UI только показывает статус 'вшитый ключ активен'.
+// Это гарантирует что ключи не попадут в bundle AiSettingsModal.
+const DEFAULT_KEYS_ACTIVE = true  // флаг что вшитые ключи работают
 
 export function AiSettingsModal({ open, onOpenChange }: AiSettingsModalProps) {
   // 🆕 Храним только то, что пользователь ВВЁЛ вручную.
@@ -136,7 +135,7 @@ export function AiSettingsModal({ open, onOpenChange }: AiSettingsModalProps) {
                 <div className="flex items-center gap-2 p-2 rounded-md bg-emerald-100/50 border border-emerald-200">
                   <Lock className="h-4 w-4 text-emerald-600 shrink-0" />
                   <div className="flex-1 text-sm">
-                    <div className="font-mono text-emerald-700">{maskKey(DEFAULT_ANYMODEL_API_KEY)}</div>
+                    <div className="font-mono text-emerald-700">{'sk-••••••••••••••'}</div>
                     <div className="text-xs text-emerald-600 italic mt-0.5">Вшитый ключ (защищён, не редактируется)</div>
                   </div>
                 </div>
@@ -214,7 +213,7 @@ export function AiSettingsModal({ open, onOpenChange }: AiSettingsModalProps) {
                 <div className="flex items-center gap-2 p-2 rounded-md bg-amber-100/50 border border-amber-200">
                   <Lock className="h-4 w-4 text-amber-600 shrink-0" />
                   <div className="flex-1 text-sm">
-                    <div className="font-mono text-amber-700">{maskKey(DEFAULT_ZAI_API_KEY)}</div>
+                    <div className="font-mono text-amber-700">{'•••••••••-••••••-••••••'}</div>
                     <div className="text-xs text-amber-600 italic mt-0.5">Вшитый ключ (защищён, не редактируется)</div>
                   </div>
                 </div>
