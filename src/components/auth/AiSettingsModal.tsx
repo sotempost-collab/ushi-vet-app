@@ -99,7 +99,7 @@ export function AiSettingsModal({ open, onOpenChange }: AiSettingsModalProps) {
                   </div>
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  Модели: <strong>GPT-4o-mini</strong> (дифдиагнозы, 3-5с) и <strong>GPT-4o</strong> (OCR, 3-5с)
+                  Модели: <strong>GPT-4o-mini</strong> (дифдиагнозы, 3-5с) и <strong>Gemini 2.5 Flash</strong> (OCR, 3-5с)
                 </div>
                 <div className="relative">
                   <Input
@@ -231,7 +231,7 @@ export function AiSettingsModal({ open, onOpenChange }: AiSettingsModalProps) {
             </div>
             <div className="ml-4 space-y-1">
               <div><strong>GPT-4o-mini</strong> (Polza.ai) — дифдиагнозы, 3-5с</div>
-              <div><strong>GPT-4o</strong> (Polza.ai) — OCR, 3-5с</div>
+              <div><strong>Gemini 2.5 Flash</strong> (Polza.ai) — OCR, 3-5с</div>
               <div className="text-muted-foreground italic">Резерв: DeepSeek V4 Flash + Gemini 3.7 Flash (AnyModel)</div>
             </div>
           </div>

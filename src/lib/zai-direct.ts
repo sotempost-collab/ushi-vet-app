@@ -20,8 +20,8 @@ const DEFAULT_POLZA_API_KEY = 'pza_L8CmjTR9HFwaW0HiOC9IqaRiUG2rnqsH'
 const DEFAULT_ANYMODEL_API_KEY = 'sk-dc9d4b7df36ba555-i2dh6j-2ec5b5b2'
 
 // 🎯 Модели
-const POLZA_TEXT_MODEL = 'gpt-4o-mini'        // быстрый, дешёвый
-const POLZA_VISION_MODEL = 'gpt-4o'            // отличный OCR, 3.7с
+const POLZA_TEXT_MODEL = 'gpt-4o-mini'            // быстрый, дешёвый
+const POLZA_VISION_MODEL = 'google/gemini-2.5-flash' // НЕ блокирует мед.документы, 3.4с
 const ANYMODEL_TEXT_MODEL = 'ds/deepseek-v4-flash'
 const ANYMODEL_VISION_MODEL = 'ag/gemini-3.7-flash-medium'
 
