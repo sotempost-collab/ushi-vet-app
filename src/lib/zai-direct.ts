@@ -1,22 +1,29 @@
 /**
- * AnyModel.org API — единственный источник AI.
+ * Polza.ai + AnyModel.org — источники AI.
  *
- * Использует:
- * - DeepSeek V4 Flash (ds/deepseek-v4-flash) — для дифференциальных диагнозов, $0.05/1M токенов
- * - Gemini 3.7 Flash Medium (ag/gemini-3.7-flash-medium) — для OCR (vision), $0.6/1M токенов
+ * Приоритет:
+ * 1. Polza.ai (https://api.polza.ai/api/v1) — БЫСТРЫЙ (3-5с), дешёвый
+ *    - gpt-4o-mini для текста (дифдиагнозы) — 0.012 руб/запрос
+ *    - gpt-4o для vision (OCR) — 3.7с (vs AnyModel 13.5с)
+ * 2. AnyModel.org — fallback если Polza.ai недоступен
+ *    - DeepSeek V4 Flash для текста — $0.05/1M
+ *    - Gemini 3.7 Flash Medium для OCR — $0.6/1M
  *
- * CORS поддерживается — можно вызывать прямо из браузера без прокси.
- * Ключ по умолчанию вшит в код. Пользователь может переопределить через localStorage.
+ * CORS поддерживается обоими сервисами — можно вызывать прямо из браузера.
  */
 
+const POLZA_API_URL = 'https://api.polza.ai/api/v1/chat/completions'
 const ANYMODEL_API_URL = 'https://anymodel.org/v1/chat/completions'
 
-// 🔑 Ключ AnyModel — вшит в код, НЕ виден в окне настроек (только маска)
+// 🔑 Ключи по умолчанию — вшиты в код
+const DEFAULT_POLZA_API_KEY = 'pza_L8CmjTR9HFwaW0HiOC9IqaRiUG2rnqsH'
 const DEFAULT_ANYMODEL_API_KEY = 'sk-dc9d4b7df36ba555-i2dh6j-2ec5b5b2'
 
 // 🎯 Модели
-const ANYMODEL_TEXT_MODEL = 'ds/deepseek-v4-flash'        // дёшево, $0.05/1M
-const ANYMODEL_VISION_MODEL = 'ag/gemini-3.7-flash-medium' // vision, $0.6/1M
+const POLZA_TEXT_MODEL = 'gpt-4o-mini'        // быстрый, дешёвый
+const POLZA_VISION_MODEL = 'gpt-4o'            // отличный OCR, 3.7с
+const ANYMODEL_TEXT_MODEL = 'ds/deepseek-v4-flash'
+const ANYMODEL_VISION_MODEL = 'ag/gemini-3.7-flash-medium'
 
 // ─────────────────────────────────────────────────────────────────────
 // Утилиты
@@ -36,6 +43,11 @@ function guessFileName(dataUrl: string, fallback?: string): string {
 function getAnyModelApiKey(): string {
   if (typeof window === 'undefined') return DEFAULT_ANYMODEL_API_KEY
   return localStorage.getItem('anymodel_api_key') || DEFAULT_ANYMODEL_API_KEY
+}
+
+function getPolzaApiKey(): string {
+  if (typeof window === 'undefined') return DEFAULT_POLZA_API_KEY
+  return localStorage.getItem('polza_api_key') || DEFAULT_POLZA_API_KEY
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -83,21 +95,116 @@ async function resizeImageToJpegDataUrl(dataUrl: string): Promise<{ dataUrl: str
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Очередь запросов — чтобы не превышать лимит AnyModel
+// Очередь запросов — чтобы не превышать лимит API
 // ─────────────────────────────────────────────────────────────────────
 
 let lastRequestTime = 0
-const MIN_INTERVAL_MS = 2000  // минимум 2 секунды между запросами
+const MIN_INTERVAL_MS = 1000  // минимум 1 секунда между запросами
 
 async function waitForRateLimit() {
   const now = Date.now()
   const elapsed = now - lastRequestTime
   if (elapsed < MIN_INTERVAL_MS) {
     const wait = MIN_INTERVAL_MS - elapsed
-    console.log(`[AnyModel] Ждём ${wait}мс для соблюдения лимита...`)
+    console.log(`[RateLimit] Ждём ${wait}мс...`)
     await new Promise((r) => setTimeout(r, wait))
   }
   lastRequestTime = Date.now()
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Polza.ai API — ОСНОВНОЙ источник (быстрый, 3-5с)
+// ─────────────────────────────────────────────────────────────────────
+
+async function callPolza(
+  model: string,
+  messages: any[],
+  options: { maxAttempts?: number; timeoutMs?: number } = {}
+): Promise<string> {
+  const { maxAttempts = 3, timeoutMs = 60000 } = options
+  const apiKey = getPolzaApiKey()
+
+  let lastError: Error | null = null
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+
+    try {
+      console.log(`[Polza] Попытка ${attempt}/${maxAttempts} → ${model}`)
+      await waitForRateLimit()
+      const response = await fetch(POLZA_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages,
+          max_tokens: 4000,
+        }),
+        signal: controller.signal,
+      })
+      clearTimeout(timeoutId)
+
+      if (!response.ok) {
+        let errorText = ''
+        try { errorText = await response.text() } catch {}
+
+        if (response.status === 401) {
+          throw new Error(`Неверный Polza.ai API ключ (401). ${errorText.slice(0, 200)}`)
+        }
+
+        if (response.status === 429) {
+          const delays = [5000, 15000, 30000]
+          const delay = delays[Math.min(attempt - 1, delays.length - 1)]
+          console.warn(`[Polza] Rate limit (429) — ждём ${delay/1000}с...`)
+          if (attempt < maxAttempts) {
+            await new Promise((r) => setTimeout(r, delay))
+            continue
+          }
+          throw new Error(`Polza.ai: лимит запросов (429). Подождите 1-2 минуты.`)
+        }
+
+        throw new Error(`Polza.ai HTTP ${response.status}. ${errorText.slice(0, 200)}`)
+      }
+
+      let result: any
+      try {
+        result = await response.json()
+      } catch {
+        throw new Error('Polza.ai вернул некорректный JSON.')
+      }
+
+      const content = result?.choices?.[0]?.message?.content
+      if (!content) {
+        throw new Error('Polza.ai вернул пустой ответ.')
+      }
+      return content
+    } catch (e: any) {
+      clearTimeout(timeoutId)
+      lastError = e
+      console.warn(`[Polza] Попытка ${attempt} не удалась: ${e?.message}`)
+      const isLast = attempt === maxAttempts
+      if (e?.message?.includes('429')) {
+        if (isLast) throw e
+        continue
+      }
+      const isRetryable = (
+        e?.name === 'AbortError' ||
+        e?.message?.includes('Failed to fetch') ||
+        e?.message?.includes('NetworkError') ||
+        e?.message?.includes('Load failed') ||
+        e?.message?.includes('The operation was aborted') ||
+        e?.message?.includes('ERR_')
+      )
+      if (!isRetryable || isLast) throw e
+      await new Promise((r) => setTimeout(r, 2000))
+    }
+  }
+
+  throw lastError || new Error('Polza.ai: все попытки провалились')
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -280,8 +387,17 @@ ${voiceNotesSummary || 'нет голосовых заметок'}
     { role: 'user', content: prompt },
   ]
 
+  // 1) Polza.ai — БЫСТРЫЙ (gpt-4o-mini, 3-5с)
+  console.log('[AI] Использую Polza.ai, модель:', POLZA_TEXT_MODEL)
+  try {
+    return await callPolza(POLZA_TEXT_MODEL, messages, { timeoutMs: 60000 })
+  } catch (e: any) {
+    console.warn('[AI] Polza.ai не сработал:', e.message, '— переключаюсь на AnyModel')
+  }
+
+  // 2) AnyModel — fallback (DeepSeek V4 Flash, ~50с)
   console.log('[AI] Использую AnyModel, модель:', ANYMODEL_TEXT_MODEL)
-  return callAnyModel(ANYMODEL_TEXT_MODEL, messages, { timeoutMs: 120000 })  // 2 минуты для дифдиагноза
+  return callAnyModel(ANYMODEL_TEXT_MODEL, messages, { timeoutMs: 120000 })
 }
 
 export async function ocrImageDirect(imageDataUrl: string, fileName?: string): Promise<string> {
@@ -321,7 +437,19 @@ export async function ocrImageDirect(imageDataUrl: string, fileName?: string): P
     },
   ]
 
-  // 3) AnyModel (Gemini 3.7 Flash) — единственный источник OCR
+  // 1) Polza.ai (gpt-4o) — БЫСТРЫЙ OCR, 3-5с
+  console.log('[OCR] Polza.ai (gpt-4o)')
+  try {
+    const result = await callPolza(POLZA_VISION_MODEL, messages, { timeoutMs: 60000 })
+    if (result && result.trim().length > 0) {
+      return result
+    }
+    throw new Error('Polza.ai вернул пустой ответ')
+  } catch (e: any) {
+    console.warn('[OCR] Polza.ai не сработал:', e.message, '— пробую AnyModel')
+  }
+
+  // 2) AnyModel (Gemini 3.7 Flash) — fallback, ~13с
   console.log('[OCR] AnyModel (gemini-3.7-flash-medium)')
   try {
     const result = await callAnyModel(ANYMODEL_VISION_MODEL, messages, { timeoutMs: 120000 })
@@ -336,7 +464,7 @@ export async function ocrImageDirect(imageDataUrl: string, fileName?: string): P
     const msg = e.message || ''
     if (msg.includes('429') || msg.includes('лимит')) {
       throw new Error(
-        'Превышен лимит запросов AnyModel.\n\n' +
+        'Превышен лимит запросов.\n\n' +
         'Что делать:\n' +
         '• Подождите 1-2 минуты — лимит сбросится\n' +
         '• Не отправляйте несколько запросов одновременно\n' +
@@ -345,7 +473,7 @@ export async function ocrImageDirect(imageDataUrl: string, fileName?: string): P
     }
     if (msg.includes('401')) {
       throw new Error(
-        'Неверный AnyModel API ключ.\n\n' +
+        'Неверный API ключ.\n\n' +
         'Что делать:\n' +
         '• Нажмите ✨ в правом нижнем углу\n' +
         '• Проверьте ключ (или используйте вшитый)'
