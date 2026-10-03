@@ -140,7 +140,7 @@ export function ResultsPanel() {
       return
     }
 
-    // Найдём следующий раздел (### Рекомендации) или конец
+    // Найдём следующий раздел (### Предупреждения или ### Рекомендации) или конец
     const nextSection = aiResult.indexOf('\n### ', sectionStart + 5)
     const sectionText =
       nextSection === -1
@@ -152,13 +152,9 @@ export function ResultsPanel() {
       .replace(/^### Предварительные назначения[^\n]*\n/, '')
       .trim()
 
-    // Объединяем с текущим содержимым
-    const currentText = results.preliminaryPrescriptions || ''
-    const newText = currentText
-      ? currentText + '\n\n— AI-генерация —\n' + cleaned
-      : cleaned
-
-    setResults({ preliminaryPrescriptions: newText })
+    // 🆕 ЗАМЕНИТЬ содержимое поля, а не добавлять к существующему.
+    // Это предотвращает дублирование при многократном нажатии кнопки.
+    setResults({ preliminaryPrescriptions: cleaned })
   }
 
   const exportProtocol = () => {

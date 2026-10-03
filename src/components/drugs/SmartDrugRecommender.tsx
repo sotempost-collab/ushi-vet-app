@@ -132,6 +132,7 @@ export function SmartDrugRecommender() {
   }
 
   // Применить препарат — добавляет его в ручное поле предварительных назначений
+  // 🆕 Проверяет дубликаты — если препарат уже есть, не добавляет повторно
   const handleApplyToPrescriptions = (drug: DrugDose) => {
     const weightKg = parseFloat(patient.weight) || 0
     const dose = calculateDose(drug, weightKg)
@@ -142,6 +143,14 @@ export function SmartDrugRecommender() {
     const drugText = `• ${drug.drug} — ${doseText} — ${drug.frequency} — ${drug.route} — показание: ${drug.indication}\n  Способ применения: ${drug.notes || '-'}\n  Противопоказания: ${drug.contraindications || '-'}\n`
 
     const currentText = results.preliminaryPrescriptions || ''
+
+    // 🆕 Проверяем, не добавлен ли уже этот препарат
+    // Ищем название препарата в существующем тексте
+    if (currentText.includes(`• ${drug.drug} —`)) {
+      // Препарат уже есть — не добавляем дубликат
+      return
+    }
+
     setResults({
       preliminaryPrescriptions: currentText + (currentText ? '\n' : '') + drugText,
     })
