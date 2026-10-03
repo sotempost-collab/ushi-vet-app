@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useVetStore } from '@/store/vetStore'
-import { examinationSystems } from '@/data/examinationData'
+import { examinationSystems, getNormalForSpecies } from '@/data/examinationData'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -291,19 +291,26 @@ export function ResultsPanel() {
     txt += `=== ОСМОТР ===\n`
     for (const system of examinationSystems) {
       const params = examination[system.id] || []
-      if (params.length === 0) continue
+      // 🆕 Пропускаем "не оценено" — не включаем в выписку
+      const evaluated = params.filter((p) => p.status && p.status !== 'not_evaluated')
+      if (evaluated.length === 0) continue
       txt += `\n--- ${system.name} ---\n`
-      for (const p of params) {
-        if (!p.status) continue
-        const statusLabel =
-          p.status === 'normal'
-            ? 'Норма'
-            : p.status === 'deviation'
-            ? 'Отклонение'
-            : 'Не оценено'
-        txt += `• ${p.name}: ${statusLabel}${
-          p.deviationValue ? ` — ${p.deviationValue}` : ''
-        }${p.notes ? ` (${p.notes})` : ''}\n`
+      for (const p of evaluated) {
+        const statusLabel = p.status === 'normal' ? 'Норма' : 'Отклонение'
+        let val = ''
+        if (p.status === 'normal') {
+          // 🆕 Для нормы подставляем значение нормы из examinationData
+          val = getNormalForSpecies(p, patient.species) || 'в норме'
+          if (p.notes) {
+            val = `${val} (${p.notes})`
+          }
+        } else if (p.status === 'deviation') {
+          val = p.deviationValue || 'отклонение'
+          if (p.notes) {
+            val = val ? `${val} (${p.notes})` : p.notes
+          }
+        }
+        txt += `• ${p.name}: ${statusLabel}${val ? ` — ${val}` : ''}\n`
       }
     }
     txt += `\n`
@@ -594,15 +601,25 @@ ${gap()}
     let hasExamData = false
     for (const system of examinationSystems) {
       const params = examination[system.id] || []
-      const evaluated = params.filter((p) => p.status)
+      // 🆕 Пропускаем параметры со статусом "не оценено" — не включаем в выписку
+      const evaluated = params.filter((p) => p.status && p.status !== 'not_evaluated')
       if (evaluated.length === 0) continue
       hasExamData = true
       html += `<div class="sub-section">${system.name}</div>`
       for (const p of evaluated) {
-        const statusLabel = p.status === 'normal' ? 'Норма' : p.status === 'deviation' ? 'Отклонение' : 'Не оценено'
-        let val = p.deviationValue || (p.status === 'normal' ? 'В норме' : '')
-        if (p.notes) {
-          val = val ? `${val} (${p.notes})` : p.notes
+        const statusLabel = p.status === 'normal' ? 'Норма' : 'Отклонение'
+        let val = ''
+        if (p.status === 'normal') {
+          // 🆕 Для нормы — подставляем значение нормы из examinationData
+          val = getNormalForSpecies(p, patient.species) || 'в норме'
+          if (p.notes) {
+            val = `${val} (${p.notes})`
+          }
+        } else if (p.status === 'deviation') {
+          val = p.deviationValue || 'отклонение'
+          if (p.notes) {
+            val = val ? `${val} (${p.notes})` : p.notes
+          }
         }
         html += line(p.name, `${statusLabel}${val ? ' — ' + val : ''}`)
       }
@@ -788,7 +805,7 @@ ${gap()}
     }
   }
 
-  // 🆕 Экспорт протокола в Word (DOCX)
+  // 🆕 Экспорт протокола в Word (DOCX) — текстовая структура как PDF
   const exportProtocolDOCX = () => {
     const duration =
       visitEndedAt !== null && visitStartedAt !== null
@@ -807,12 +824,116 @@ ${gap()}
       return `${pad(minutes)}:${pad(seconds)}`
     }
 
-    // DOCX — это ZIP с XML внутри. Создаём минимальный Word-совместимый HTML.
-    // Microsoft Word открывает .doc файлы с HTML-содержимым.
+    // Хелпер: строка "<strong>Метка:</strong> значение"
+    const line = (label: string, value: string | number | null | undefined) => {
+      const v = value == null || value === '' ? '—' : String(value)
+      return `<p><strong>${label}:</strong> ${escapeHtml(v)}</p>`
+    }
+
+    // Словари для перевода (повторяем для DOCX)
+    const ANAMNESIS_LABELS_DOCX: Record<string, string> = {
+      livingConditions: 'Где живёт',
+      outdoorAccess: 'Доступ на улицу / режим прогулок',
+      otherAnimals: 'Другие животные дома',
+      contactsStrangers: 'Контакты с чужими животными',
+      caretaker: 'Кто ухаживает',
+      decisionMaker: 'Кто принимает решения по лечению',
+      physicalActivity: 'Физическая нагрузка',
+      dietType: 'Тип рациона',
+      dietBrand: 'Бренд / линейка корма',
+      feedingFreq: 'Частота кормления',
+      feedingVolume: 'Объём кормления',
+      treats: 'Лакомства',
+      supplements: 'Добавки / витамины',
+      dietChanges: 'Изменения рациона недавно',
+      tableFoodAccess: 'Доступ к корму со стола',
+      trashAccess: 'Доступ к мусору',
+      waterSource: 'Источник воды',
+      waterChangeFreq: 'Как часто меняют воду',
+      waterIntake: 'Сколько пьёт (оценка владельца)',
+      vaccination: 'Вакцинация (препарат)',
+      vaccinationDate: 'Дата последней вакцинации',
+      fleaTickTreatment: 'Обработка от блох/клещей (препарат)',
+      fleaTickDate: 'Дата последней обработки от блох/клещей',
+      deworming: 'Дегельминтизация (препарат)',
+      dewormingDate: 'Дата последней дегельминтизации',
+      neutered: 'Кастрация / стерилизация',
+      neuteredDate: 'Дата операции',
+      neuteredComplications: 'Осложнения после операции',
+      mainComplaint: 'Что именно беспокоит? С чего началось?',
+      complaintOnset: 'Когда заметили первые признаки',
+      complaintDevelopment: 'Как развивались симптомы',
+      associatedFactors: 'С чем владелец связывает начало',
+      previousEpisodes: 'Была ли такая проблема раньше, исход',
+      previousTreatment: 'Какая помощь уже оказана по текущей проблеме',
+      currentTreatment: 'Текущее лечение (постоянные препараты)',
+      currentTreatmentEffect: 'Эффект от текущего лечения',
+      generalStatus: 'Общее состояние: активность, вес, лихорадка, поведение',
+      coughDyspnea: 'Кашель / одышка: характер, при нагрузке/ночью, выделения',
+      polyuriaPolydipsia: 'Полиурия / полидипсия',
+      appetiteGi: 'Аппетит / ЖКТ: аппетит, рвота, стул, доступ к инородному',
+      urogenital: 'Мочеполовая: частота, характер, цвет, недержание, течки',
+      skin: 'Кожа / шерсть: зуд, расчёсы, алопеция, перхоть, паразиты',
+      nervous: 'Нервная / органы чувств: судороги, шаткость, наклон головы, глаза',
+      musculoskeletal: 'Опорно-двигательный: хромота, нежелание прыгать, травмы',
+      travel: 'Поездки, выставки, передержки, груминг',
+      exhibitions: 'Выставки',
+      boarding: 'Передержки',
+      grooming: 'Груминг',
+      sickAnimalsNearby: 'Больные животные в доме/подъезде',
+      walkingArea: 'Для собак: где гуляет, контакт с дикими/падалью/грызунами',
+      wildlifeContact: 'Контакт с дикими животными',
+      huntingBehavior: 'Для кошек: охота, вода из луж/туалета',
+      previousDiseases: 'Предыдущие заболевания',
+      surgeries: 'Операции',
+      chronicDiseases: 'Хронические заболевания',
+      permanentMedications: 'Постоянные препараты',
+      allergies: 'Аллергии',
+      anesthesiaIssues: 'Проблемы с анестезией',
+      firstEstrus: 'Первая течка',
+      estrusRegularity: 'Регулярность течки',
+      estrusDuration: 'Длительность течки',
+      falsePregnancies: 'Ложные беременности',
+      pyometra: 'Пиометра',
+      births: 'Роды',
+      breedingMales: 'Случки с котами/кобелями',
+      prostateIssues: 'Проблемы с простатой',
+    }
+    const ANAMNESIS_VALUES_DOCX: Record<string, string> = {
+      apartment: 'Квартира',
+      house: 'Частный дом',
+      aviary: 'Вольер',
+      street: 'Уличное содержание',
+      shelter: 'Приют',
+      commercial: 'Промышленный корм',
+      natural: 'Натуральное кормление',
+      mixed: 'Смешанный',
+      raw: 'RAW / BARF',
+      '1': '1 раз в день',
+      '2': '2 раза в день',
+      '3': '3 раза в день',
+      free: 'Свободный доступ',
+      no: 'Нет',
+      yes: 'Да',
+      occasionally: 'Иногда',
+      sometimes: 'Иногда',
+      'true': 'Да',
+      'false': 'Нет',
+    }
+    const translateValueDocx = (v: string): string => {
+      const trimmed = String(v).trim()
+      if (trimmed && ANAMNESIS_VALUES_DOCX[trimmed]) {
+        return ANAMNESIS_VALUES_DOCX[trimmed]
+      }
+      return v
+    }
+
+    // DOCX — это ZIP с XML внутри. Создаём минимальный Word-совместимый HTML
+    // со структурой как PDF: без таблиц, метки жирные, разделы с подчёркиванием.
     const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
 <head>
 <meta charset="UTF-8">
-<title>Ветеринарный протокол — Ассистент УшиХвост</title>
+<title>Выписка из медицинской карты — Ассистент УшиХвост</title>
 <!--[if gte mso 9]>
 <xml>
 <w:WordDocument>
@@ -823,36 +944,140 @@ ${gap()}
 <![endif]-->
 <style>
 @page { margin: 2cm; size: A4; }
-body { font-family: 'Times New Roman', serif; font-size: 12pt; line-height: 1.5; }
-h1 { color: #047857; font-size: 18pt; border-bottom: 2px solid #047857; padding-bottom: 4pt; }
-h2 { color: #047857; font-size: 14pt; margin-top: 16pt; border-bottom: 1px solid #d1fae5; padding-bottom: 2pt; }
-.patient { background: #f0fdf4; border: 1px solid #bbf7d0; padding: 8pt; margin: 8pt 0; }
-.footer { margin-top: 24pt; padding-top: 8pt; border-top: 1px solid #e5e7eb; font-size: 9pt; color: #6b7280; text-align: center; }
-table { width: 100%; border-collapse: collapse; margin: 8pt 0; }
-td, th { border: 1px solid #ddd; padding: 4pt; font-size: 10pt; }
+body { font-family: 'Times New Roman', 'Liberation Serif', serif; font-size: 12pt; line-height: 1.55; color: #000; }
+.doc-title { text-align: center; font-size: 18pt; font-weight: bold; margin: 8pt 0 24pt 0; text-transform: uppercase; }
+.meta { text-align: center; color: #555; font-size: 10pt; margin-top: -16pt; margin-bottom: 18pt; }
+.section { font-size: 14pt; font-weight: bold; margin: 18pt 0 6pt 0; padding-bottom: 3pt; border-bottom: 1px solid #888; }
+.sub-section { text-align: center; font-size: 13pt; font-weight: bold; margin: 14pt 0 8pt 0; }
+.text-block { margin: 4pt 0 10pt 0; white-space: pre-wrap; }
+p { margin: 2pt 0; }
+strong { font-weight: bold; }
+.footer { margin-top: 40pt; padding-top: 8pt; border-top: 1px solid #aaa; font-size: 9pt; color: #666; text-align: center; }
 </style>
 </head>
 <body>
-<h1>Ветеринарный протокол</h1>
-<p style="color: #6b7280; font-size: 10pt;">Сформирован: ${new Date().toLocaleString('ru-RU')} · Ассистент УшиХвост</p>
 
-<h2>Пациент</h2>
-<div class="patient">
-<p><strong>Вид:</strong> ${patient.species === 'dog' ? 'Собака' : patient.species === 'cat' ? 'Кошка' : 'Другое'}</p>
-<p><strong>Вес:</strong> ${patient.weight || '—'} кг</p>
-<p><strong>Дата приёма:</strong> ${patient.visitDate || '—'}</p>
-<p><strong>Длительность приёма:</strong> ${formatDuration(duration)}</p>
-</div>
+<div class="doc-title">Выписка из медицинской карты животного</div>
+<p class="meta">${new Date().toLocaleString('ru-RU')}</p>
 
-${results.preliminaryDiagnoses ? `<h2>Предварительные диагнозы</h2><p>${escapeHtml(results.preliminaryDiagnoses).replace(/\n/g, '<br>')}</p>` : ''}
-${results.plannedExaminations ? `<h2>Плановые обследования</h2><p>${escapeHtml(results.plannedExaminations).replace(/\n/g, '<br>')}</p>` : ''}
-${results.mandatoryDiagnostics ? `<h2>Обязательная лабораторная и инструментальная диагностика</h2><p>${escapeHtml(results.mandatoryDiagnostics).replace(/\n/g, '<br>')}</p>` : ''}
-${results.additionalDiagnostics ? `<h2>Дополнительная визуализационная диагностика</h2><p>${escapeHtml(results.additionalDiagnostics).replace(/\n/g, '<br>')}</p>` : ''}
-${results.preliminaryPrescriptions ? `<h2>Предварительные назначения (терапия)</h2><p>${escapeHtml(results.preliminaryPrescriptions).replace(/\n/g, '<br>')}</p>` : ''}
-${results.recommendations ? `<h2>Рекомендации</h2><p>${escapeHtml(results.recommendations).replace(/\n/g, '<br>')}</p>` : ''}
-${aiResult ? `<h2>AI-заключение</h2><p>${escapeHtml(aiResult).replace(/\n/g, '<br>')}</p>` : ''}
+<div class="section">Данные пациента</div>
+${line('Вид животного', patient.species === 'dog' ? 'Собака' : patient.species === 'cat' ? 'Кошка' : 'Другое')}
+${line('Вес', patient.weight ? `${patient.weight} кг` : '—')}
+${line('Дата приёма', patient.visitDate || '—')}
+${line('Длительность приёма', formatDuration(duration))}
+<p>&nbsp;</p>
 
-<div class="footer">🐾 Ассистент УшиХвост — вспомогательный инструмент врача. Окончательный диагноз ставится врачом после очной консультации.</div>
+<div class="section">Анамнез</div>
+${(() => {
+  const anamnesisEntries = Object.entries(anamnesis).filter(([, v]) => v && String(v).trim())
+  if (anamnesisEntries.length === 0) return '<p>Анамнез не заполнен</p>'
+  return anamnesisEntries.map(([k, v]) => {
+    const label = ANAMNESIS_LABELS_DOCX[k] || k
+    const value = translateValueDocx(String(v))
+    return line(label, value)
+  }).join('')
+})()}
+<p>&nbsp;</p>
+
+<div class="section">Осмотр по системам</div>
+${(() => {
+  let examHtml = ''
+  let hasExamData = false
+  for (const system of examinationSystems) {
+    const params = examination[system.id] || []
+    const evaluated = params.filter((p) => p.status && p.status !== 'not_evaluated')
+    if (evaluated.length === 0) continue
+    hasExamData = true
+    examHtml += \`<div class="sub-section">${system.name}</div>\`
+    for (const p of evaluated) {
+      const statusLabel = p.status === 'normal' ? 'Норма' : 'Отклонение'
+      let val = ''
+      if (p.status === 'normal') {
+        val = getNormalForSpecies(p, patient.species) || 'в норме'
+        if (p.notes) val = \`\${val} (\${p.notes})\`
+      } else if (p.status === 'deviation') {
+        val = p.deviationValue || 'отклонение'
+        if (p.notes) val = val ? \`\${val} (\${p.notes})\` : p.notes
+      }
+      examHtml += line(p.name, \`\${statusLabel}\${val ? ' — ' + val : ''}\`)
+    }
+    examHtml += '<p>&nbsp;</p>'
+  }
+  if (!hasExamData) examHtml = '<p>Данные осмотра не заполнены</p><p>&nbsp;</p>'
+  return examHtml
+})()}
+
+${(auscultation.rhythm || auscultation.bpm || auscultation.murmurs || auscultation.notes) ? `
+<div class="section">Аускультация сердца</div>
+${line('Ритм', auscultation.rhythm)}
+${line('ЧСС', auscultation.bpm ? `${auscultation.bpm} уд/мин` : '—')}
+${line('Шумы', auscultation.murmurs)}
+${line('Комментарий', auscultation.notes)}
+<p>&nbsp;</p>
+` : ''}
+
+${(() => {
+  const scansWithText = scans.filter((s) => s.ocrText)
+  if (scansWithText.length === 0) return ''
+  let scanHtml = '<div class="section">Загруженные исследования</div>'
+  scansWithText.forEach((s, i) => {
+    scanHtml += \`<div class="sub-section">${i + 1}. ${escapeHtml(s.name)}</div>\`
+    scanHtml += \`<div class="text-block">${escapeHtml(s.ocrText)}</div>\`
+  })
+  scanHtml += '<p>&nbsp;</p>'
+  return scanHtml
+})()}
+
+${(() => {
+  const hasConclusion = results.preliminaryDiagnoses || results.plannedExaminations || results.mandatoryDiagnostics || results.additionalDiagnostics || results.preliminaryPrescriptions || results.recommendations || aiResult
+  if (!hasConclusion) return ''
+  let cHtml = '<div class="section">Заключение</div>'
+  // AI-заключение — выводим ПЕРВЫМ, разбиваем по ###
+  if (aiResult) {
+    const aiSections = aiResult.split(/^###\\s+/m)
+    for (const sec of aiSections) {
+      const trimmed = sec.trim()
+      if (!trimmed) continue
+      const nlIdx = trimmed.indexOf('\\n')
+      if (nlIdx > 0 && nlIdx < 100) {
+        const heading = trimmed.substring(0, nlIdx).trim()
+        const body = trimmed.substring(nlIdx + 1).trim()
+        cHtml += \`<div class="sub-section">${escapeHtml(heading)}</div>\`
+        cHtml += \`<div class="text-block">${escapeHtml(body)}</div>\`
+      } else {
+        cHtml += \`<div class="text-block">${escapeHtml(trimmed)}</div>\`
+      }
+    }
+    cHtml += '<p>&nbsp;</p>'
+  }
+  if (results.preliminaryDiagnoses) {
+    cHtml += '<div class="sub-section">Предварительные диагнозы</div>'
+    cHtml += \`<div class="text-block">${escapeHtml(results.preliminaryDiagnoses)}</div>\`
+  }
+  if (results.plannedExaminations) {
+    cHtml += '<div class="sub-section">Плановые обследования</div>'
+    cHtml += \`<div class="text-block">${escapeHtml(results.plannedExaminations)}</div>\`
+  }
+  if (results.mandatoryDiagnostics) {
+    cHtml += '<div class="sub-section">Обязательная лабораторная и инструментальная диагностика</div>'
+    cHtml += \`<div class="text-block">${escapeHtml(results.mandatoryDiagnostics)}</div>\`
+  }
+  if (results.additionalDiagnostics) {
+    cHtml += '<div class="sub-section">Дополнительная визуализационная диагностика</div>'
+    cHtml += \`<div class="text-block">${escapeHtml(results.additionalDiagnostics)}</div>\`
+  }
+  if (results.preliminaryPrescriptions) {
+    cHtml += '<div class="sub-section">Предварительные назначения (терапия)</div>'
+    cHtml += \`<div class="text-block">${escapeHtml(results.preliminaryPrescriptions)}</div>\`
+  }
+  if (results.recommendations) {
+    cHtml += '<div class="sub-section">Рекомендации</div>'
+    cHtml += \`<div class="text-block">${escapeHtml(results.recommendations)}</div>\`
+  }
+  return cHtml
+})()}
+
+<div class="footer">Ассистент УшиХвост — вспомогательный инструмент врача. Окончательный диагноз ставится врачом после очной консультации.</div>
 </body>
 </html>`
 
@@ -861,7 +1086,7 @@ ${aiResult ? `<h2>AI-заключение</h2><p>${escapeHtml(aiResult).replace(
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `protocol-${patient.species}-${new Date().toISOString().split('T')[0]}.doc`
+    a.download = `vypiska-${patient.species}-${new Date().toISOString().split('T')[0]}.doc`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)

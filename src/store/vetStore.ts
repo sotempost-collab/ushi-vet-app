@@ -231,7 +231,7 @@ interface VetState {
 
 const initialPatient: PatientInfo = {
   species: 'dog',
-  weight: '',
+  weight: '', // пусто = пользователь должен ввести; placeholder в PatientHeader показывает '12.5'
   visitDate: new Date().toISOString().split('T')[0],
 }
 

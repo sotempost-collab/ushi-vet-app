@@ -192,8 +192,14 @@ export function PatientHeader() {
               onChange={(e) => handleChange('weight', e.target.value)}
               placeholder="12.5"
               disabled={isFinished}
-              className="h-10"
+              className={`h-10 ${!patient.weight ? 'border-amber-400 bg-amber-50' : ''}`}
+              title={!patient.weight ? '⚠️ Укажите вес пациента — без него расчёт дозировок в заключении невозможен' : ''}
             />
+            {!patient.weight && (
+              <div className="text-[10px] text-amber-700 leading-tight">
+                ⚠️ Укажите вес — без него AI не сможет рассчитать дозы
+              </div>
+            )}
           </div>
 
           <div className="space-y-1.5 col-span-2 sm:col-span-1">
