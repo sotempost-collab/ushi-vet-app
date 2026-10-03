@@ -1,0 +1,9 @@
+1:"$Sreact.fragment"
+2:I[47257,["/ushi-vet-app/_next/static/chunks/bc6d96a0793e6185.js"],"ClientPageRoot"]
+3:I[52683,["/ushi-vet-app/_next/static/chunks/28392ef45f00e723.js","/ushi-vet-app/_next/static/chunks/033f9ed3529dce7f.js","/ushi-vet-app/_next/static/chunks/786966d17572ea34.js","/ushi-vet-app/_next/static/chunks/cc3e1306303c178c.js"],"default"]
+6:I[97367,["/ushi-vet-app/_next/static/chunks/bc6d96a0793e6185.js"],"OutletBoundary"]
+7:"$Sreact.suspense"
+0:{"buildId":"rYDpcsVCR7lXNbWdEVLCi","rsc":["$","$1","c",{"children":[["$","$L2",null,{"Component":"$3","serverProvidedParams":{"searchParams":{},"params":{},"promises":["$@4","$@5"]}}],[["$","script","script-0",{"src":"/ushi-vet-app/_next/static/chunks/786966d17572ea34.js","async":true}],["$","script","script-1",{"src":"/ushi-vet-app/_next/static/chunks/cc3e1306303c178c.js","async":true}]],["$","$L6",null,{"children":["$","$7",null,{"name":"Next.MetadataOutlet","children":"$@8"}]}]]}],"loading":null,"isPartial":false}
+4:{}
+5:"$0:rsc:props:children:0:props:serverProvidedParams:params"
+8:null

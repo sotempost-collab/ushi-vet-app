@@ -1,0 +1,2 @@
+:HL["/ushi-vet-app/_next/static/chunks/98481809cd2c8df5.css","style"]
+0:{"buildId":"rYDpcsVCR7lXNbWdEVLCi","tree":{"name":"","paramType":null,"paramKey":"","hasRuntimePrefetch":false,"slots":{"children":{"name":"__PAGE__","paramType":null,"paramKey":"__PAGE__","hasRuntimePrefetch":false,"slots":null,"isRootLayout":false}},"isRootLayout":true},"staleTime":300}

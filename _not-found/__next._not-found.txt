@@ -1,0 +1,4 @@
+1:"$Sreact.fragment"
+2:I[39756,["/ushi-vet-app/_next/static/chunks/28392ef45f00e723.js","/ushi-vet-app/_next/static/chunks/033f9ed3529dce7f.js","/ushi-vet-app/_next/static/chunks/bc6d96a0793e6185.js"],"default"]
+3:I[37457,["/ushi-vet-app/_next/static/chunks/28392ef45f00e723.js","/ushi-vet-app/_next/static/chunks/033f9ed3529dce7f.js","/ushi-vet-app/_next/static/chunks/bc6d96a0793e6185.js"],"default"]
+0:{"buildId":"rYDpcsVCR7lXNbWdEVLCi","rsc":["$","$1","c",{"children":[null,["$","$L2",null,{"parallelRouterKey":"children","template":["$","$L3",null,{}]}]]}],"loading":null,"isPartial":false}
