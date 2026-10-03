@@ -46,15 +46,17 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     initializeDefault()
   }, [initializeDefault])
 
-  // 🆕 Проверяем, задан ли какой-то AI ключ (Z.AI или AnyModel)
+  // 🆕 Проверяем, задан ли какой-то AI ключ (Z.AI или AnyModel).
+  // Вшитые ключи (DEFAULT_*_API_KEY в zai-direct.ts) работают всегда,
+  // даже если localStorage пустой. Поэтому anyModelActive = true по умолчанию.
   useEffect(() => {
     const updateAnyModelState = () => {
       const hasZai = !!localStorage.getItem('zai_api_key')
       const hasAnymodel = !!localStorage.getItem('anymodel_api_key')
-      setAnyModelActive(hasZai || hasAnymodel)
+      // 🆕 Вшитые ключи работают всегда — AI активен даже если localStorage пустой
+      setAnyModelActive(true)  // ← всегда true, т.к. DEFAULT ключи активны
     }
     updateAnyModelState()
-    // Обновляем состояние при открытии окна настроек
     window.addEventListener('storage', updateAnyModelState)
     return () => window.removeEventListener('storage', updateAnyModelState)
   }, [showAiSettings])
