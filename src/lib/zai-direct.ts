@@ -1,29 +1,22 @@
 /**
- * AI — генерация дифференциальных диагнозов и OCR.
+ * AnyModel.org API — единственный источник AI.
  *
- * Источники (по приоритету):
- * 1. AnyModel.org — OpenAI-compatible API. Default ключ вшит в код.
- *    - gemini-3.7-flash-medium — vision (OCR), $0.6/1M токенов
- *    - deepseek-v4-flash — текст (дифдиагнозы), $0.05/1M токенов (дёшево)
- *    - CORS поддерживается — можно вызывать прямо из браузера
- * 2. Z.AI Direct — fallback если AnyModel недоступен
- *    - glm-4.5-air (текст) и glm-4.5v (vision)
+ * Использует:
+ * - DeepSeek V4 Flash (ds/deepseek-v4-flash) — для дифференциальных диагнозов, $0.05/1M токенов
+ * - Gemini 3.7 Flash Medium (ag/gemini-3.7-flash-medium) — для OCR (vision), $0.6/1M токенов
  *
- * Ключи по умолчанию вшиты в код. Можно переопределить через localStorage:
- * - `anymodel_api_key` — ключ AnyModel
- * - `zai_api_key` — ключ Z.AI
+ * CORS поддерживается — можно вызывать прямо из браузера без прокси.
+ * Ключ по умолчанию вшит в код. Пользователь может переопределить через localStorage.
  */
 
 const ANYMODEL_API_URL = 'https://anymodel.org/v1/chat/completions'
-const ZAI_API_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions'
 
-// 🔑 Ключи по умолчанию — вшиты в код
+// 🔑 Ключ AnyModel — вшит в код, НЕ виден в окне настроек (только маска)
 const DEFAULT_ANYMODEL_API_KEY = 'sk-dc9d4b7df36ba555-i2dh6j-2ec5b5b2'
-const DEFAULT_ZAI_API_KEY = '3ab2bda735fc40a19a907f777a93dc7d.N1NGBDl7jh3uFNUW'
 
-// 🎯 Дефолтные модели AnyModel
-const ANYMODEL_TEXT_MODEL = 'ds/deepseek-v4-flash'      // дёшево, $0.05/1M
-const ANYMODEL_VISION_MODEL = 'ag/gemini-3.7-flash-medium'  // vision, $0.6/1M
+// 🎯 Модели
+const ANYMODEL_TEXT_MODEL = 'ds/deepseek-v4-flash'        // дёшево, $0.05/1M
+const ANYMODEL_VISION_MODEL = 'ag/gemini-3.7-flash-medium' // vision, $0.6/1M
 
 // ─────────────────────────────────────────────────────────────────────
 // Утилиты
@@ -40,18 +33,13 @@ function guessFileName(dataUrl: string, fallback?: string): string {
   return m ? decodeURIComponent(m[1]) : 'image'
 }
 
-function getZaiApiKey(): string {
-  if (typeof window === 'undefined') return DEFAULT_ZAI_API_KEY
-  return localStorage.getItem('zai_api_key') || DEFAULT_ZAI_API_KEY
-}
-
 function getAnyModelApiKey(): string {
   if (typeof window === 'undefined') return DEFAULT_ANYMODEL_API_KEY
   return localStorage.getItem('anymodel_api_key') || DEFAULT_ANYMODEL_API_KEY
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Canvas ресайз изображений (для Z.AI API)
+// Canvas ресайз изображений (для OCR)
 // ─────────────────────────────────────────────────────────────────────
 
 const MAX_IMAGE_DIM = 1600
@@ -95,7 +83,7 @@ async function resizeImageToJpegDataUrl(dataUrl: string): Promise<{ dataUrl: str
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Очередь запросов — чтобы не превышать лимит Z.AI (5 запросов/мин)
+// Очередь запросов — чтобы не превышать лимит AnyModel
 // ─────────────────────────────────────────────────────────────────────
 
 let lastRequestTime = 0
@@ -106,14 +94,14 @@ async function waitForRateLimit() {
   const elapsed = now - lastRequestTime
   if (elapsed < MIN_INTERVAL_MS) {
     const wait = MIN_INTERVAL_MS - elapsed
-    console.log(`[Z.AI] Ждём ${wait}мс для соблюдения лимита...`)
+    console.log(`[AnyModel] Ждём ${wait}мс для соблюдения лимита...`)
     await new Promise((r) => setTimeout(r, wait))
   }
   lastRequestTime = Date.now()
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// AnyModel.org API — основной источник (OpenAI-compatible)
+// AnyModel.org API — основной вызов
 // ─────────────────────────────────────────────────────────────────────
 
 async function callAnyModel(
@@ -121,7 +109,7 @@ async function callAnyModel(
   messages: any[],
   options: { maxAttempts?: number; timeoutMs?: number } = {}
 ): Promise<string> {
-  const { maxAttempts = 3, timeoutMs = 60000 } = options
+  const { maxAttempts = 3, timeoutMs = 120000 } = options  // 2 минуты timeout для vision
   const apiKey = getAnyModelApiKey()
 
   let lastError: Error | null = null
@@ -157,13 +145,20 @@ async function callAnyModel(
         }
 
         if (response.status === 429) {
-          console.warn(`[AnyModel] Rate limit (429) — попытка ${attempt}, ждём 30с...`)
+          // 🆕 Расширенный backoff для 429: 10с, 30с, 60с, 90с
+          const delays = [10000, 30000, 60000, 90000]
+          const delay = delays[Math.min(attempt - 1, delays.length - 1)]
+          console.warn(`[AnyModel] Rate limit (429) — попытка ${attempt}/${maxAttempts}, ждём ${delay/1000}с...`)
           if (attempt < maxAttempts) {
-            await new Promise((r) => setTimeout(r, 30000))
+            await new Promise((r) => setTimeout(r, delay))
             continue
           }
           throw new Error(
-            `AnyModel: лимит запросов (429). Подождите 1-2 минуты.`
+            `AnyModel: превышен лимит запросов (429).\n\n` +
+            `Что делать:\n` +
+            `• Подождите 1-2 минуты — лимит сбросится\n` +
+            `• Не отправляйте несколько запросов одновременно\n` +
+            `• Используйте «Ручной ввод данных исследования» ниже`
           )
         }
 
@@ -205,112 +200,6 @@ async function callAnyModel(
   }
 
   throw lastError || new Error('AnyModel: все попытки провалились')
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// Z.AI Direct API — fallback если AnyModel недоступен
-// ─────────────────────────────────────────────────────────────────────
-
-async function callZaiDirect(
-  model: string,
-  messages: any[],
-  options: { maxAttempts?: number; timeoutMs?: number } = {}
-): Promise<string> {
-  // Увеличил до 5 попыток с длительными задержками — на бесплатном тарифе Z.AI
-  // лимит ~5-10 запросов/мин, нужен долгий backoff
-  const { maxAttempts = 5, timeoutMs = 60000 } = options
-  const apiKey = getZaiApiKey()
-
-  let lastError: Error | null = null
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
-
-    try {
-      console.log(`[Z.AI] Попытка ${attempt}/${maxAttempts} → ${model}`)
-      // 🆕 Ждём чтобы не превысить лимит запросов
-      await waitForRateLimit()
-      const response = await fetch(ZAI_API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model,
-          messages,
-          thinking: { type: 'disabled' },
-        }),
-        signal: controller.signal,
-      })
-      clearTimeout(timeoutId)
-
-      if (!response.ok) {
-        let errorText = ''
-        try { errorText = await response.text() } catch {}
-
-        if (response.status === 401) {
-          throw new Error(`Неверный Z.AI API ключ (401). ${errorText.slice(0, 200)}`)
-        }
-
-        if (response.status === 429) {
-          // 429 = Rate Limit. На бесплатном тарифе Z.AI лимит ~5 запросов/мин.
-          // Делаем экспоненциальный backoff: 10с, 30с, 60с, 90с.
-          const delays = [10000, 30000, 60000, 90000]
-          const delay = delays[Math.min(attempt - 1, delays.length - 1)]
-          console.warn(`[Z.AI] Rate limit (429) — попытка ${attempt}/${maxAttempts}, ждём ${delay/1000}с...`)
-          if (attempt < maxAttempts) {
-            await new Promise((r) => setTimeout(r, delay))
-            continue
-          }
-          throw new Error(
-            `Z.AI: превышен лимит запросов (429). Вы подождите 1-2 минуты и попробуйте снова.\n\n` +
-            `На бесплатном тарифе Z.AI лимит ~5 запросов в минуту. ` +
-            `Если нужно больше — оплатите тариф на https://open.bigmodel.cn`
-          )
-        }
-
-        throw new Error(`Z.AI HTTP ${response.status}. ${errorText.slice(0, 200)}`)
-      }
-
-      let result: any
-      try {
-        result = await response.json()
-      } catch {
-        throw new Error('Z.AI вернул некорректный JSON.')
-      }
-
-      const content = result?.choices?.[0]?.message?.content
-      if (!content) {
-        throw new Error('Z.AI вернул пустой ответ.')
-      }
-      return content
-    } catch (e: any) {
-      clearTimeout(timeoutId)
-      lastError = e
-      console.warn(`[Z.AI] Попытка ${attempt} не удалась: ${e?.message}`)
-      const isLast = attempt === maxAttempts
-      // 429 — retry делается выше через continue, не повторяем тут
-      if (e?.message?.includes('429')) {
-        if (isLast) throw e
-        continue
-      }
-      const isRetryable = (
-        e?.name === 'AbortError' ||
-        e?.message?.includes('Failed to fetch') ||
-        e?.message?.includes('NetworkError') ||
-        e?.message?.includes('Load failed') ||
-        e?.message?.includes('The operation was aborted') ||
-        e?.message?.includes('ERR_')
-      )
-      if (!isRetryable || isLast) throw e
-      // Короткая задержка для network ошибок
-      await new Promise((r) => setTimeout(r, 2000))
-    }
-  }
-
-  throw lastError || new Error('Z.AI: все попытки провалились')
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -390,17 +279,8 @@ ${voiceNotesSummary || 'нет голосовых заметок'}
     { role: 'user', content: prompt },
   ]
 
-  // 1) AnyModel (ds/deepseek-v4-flash) — дёшево, $0.05/1M токенов
   console.log('[AI] Использую AnyModel, модель:', ANYMODEL_TEXT_MODEL)
-  try {
-    return await callAnyModel(ANYMODEL_TEXT_MODEL, messages)
-  } catch (e: any) {
-    console.warn('[AI] AnyModel не сработал:', e.message, '— переключаюсь на Z.AI Direct')
-  }
-
-  // 2) Z.AI Direct (fallback)
-  console.log('[AI] Использую Z.AI Direct, модель: glm-4.5-air')
-  return callZaiDirect('glm-4.5-air', messages)
+  return callAnyModel(ANYMODEL_TEXT_MODEL, messages, { timeoutMs: 120000 })  // 2 минуты для дифдиагноза
 }
 
 export async function ocrImageDirect(imageDataUrl: string, fileName?: string): Promise<string> {
@@ -440,31 +320,22 @@ export async function ocrImageDirect(imageDataUrl: string, fileName?: string): P
     },
   ]
 
-  // 3) Сначала AnyModel (gemini-3.7-flash-medium — vision-модель, $0.6/1M)
+  // 3) AnyModel (Gemini 3.7 Flash) — единственный источник OCR
   console.log('[OCR] AnyModel (gemini-3.7-flash-medium)')
   try {
-    const result = await callAnyModel(ANYMODEL_VISION_MODEL, messages)
+    const result = await callAnyModel(ANYMODEL_VISION_MODEL, messages, { timeoutMs: 120000 })
     if (result && result.trim().length > 0) {
       return result
     }
     throw new Error('AnyModel вернул пустой ответ')
   } catch (e: any) {
-    console.warn('[OCR] AnyModel не сработал:', e.message, '— пробую Z.AI Direct')
-    // Fallback на Z.AI Direct
-    try {
-      const result = await callZaiDirect('glm-4.5v', messages)
-      if (result && result.trim().length > 0) {
-        return result
-      }
-    } catch (e2: any) {
-      console.warn('[OCR] Z.AI Direct не сработал:', e2.message)
-    }
+    console.warn('[OCR] AnyModel не сработал:', e.message)
 
     // Понятное сообщение для пользователя
     const msg = e.message || ''
     if (msg.includes('429') || msg.includes('лимит')) {
       throw new Error(
-        'Превышен лимит запросов.\n\n' +
+        'Превышен лимит запросов AnyModel.\n\n' +
         'Что делать:\n' +
         '• Подождите 1-2 минуты — лимит сбросится\n' +
         '• Не отправляйте несколько запросов одновременно\n' +
@@ -473,15 +344,15 @@ export async function ocrImageDirect(imageDataUrl: string, fileName?: string): P
     }
     if (msg.includes('401')) {
       throw new Error(
-        'Неверный API ключ.\n\n' +
+        'Неверный AnyModel API ключ.\n\n' +
         'Что делать:\n' +
         '• Нажмите ✨ в правом нижнем углу\n' +
-        '• Проверьте ключ AnyModel или Z.AI'
+        '• Проверьте ключ (или используйте вшитый)'
       )
     }
     if (msg.includes('Failed to fetch') || msg.includes('Network') || msg.includes('ERR_')) {
       throw new Error(
-        'Не удалось связаться с AI (ошибка сети).\n\n' +
+        'Не удалось связаться с AnyModel (ошибка сети).\n\n' +
         'Что делать:\n' +
         '• Проверьте интернет-соединение\n' +
         '• Отключите блокировщики рекламы (AdBlock/uBlock) для этого сайта\n' +
@@ -492,4 +363,3 @@ export async function ocrImageDirect(imageDataUrl: string, fileName?: string): P
     throw e
   }
 }
-
