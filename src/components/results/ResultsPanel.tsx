@@ -988,18 +988,18 @@ ${(() => {
     const evaluated = params.filter((p) => p.status && p.status !== 'not_evaluated')
     if (evaluated.length === 0) continue
     hasExamData = true
-    examHtml += \`<div class="sub-section">${system.name}</div>\`
+    examHtml += `<div class="sub-section">${system.name}</div>`
     for (const p of evaluated) {
       const statusLabel = p.status === 'normal' ? 'Норма' : 'Отклонение'
       let val = ''
       if (p.status === 'normal') {
         val = getNormalForSpecies(p, patient.species) || 'в норме'
-        if (p.notes) val = \`\${val} (\${p.notes})\`
+        if (p.notes) val = `\${val} (\${p.notes})`
       } else if (p.status === 'deviation') {
         val = p.deviationValue || 'отклонение'
-        if (p.notes) val = val ? \`\${val} (\${p.notes})\` : p.notes
+        if (p.notes) val = val ? `\${val} (\${p.notes})` : p.notes
       }
-      examHtml += line(p.name, \`\${statusLabel}\${val ? ' — ' + val : ''}\`)
+      examHtml += line(p.name, `\${statusLabel}\${val ? ' — ' + val : ''}`)
     }
     examHtml += '<p>&nbsp;</p>'
   }
@@ -1021,8 +1021,8 @@ ${(() => {
   if (scansWithText.length === 0) return ''
   let scanHtml = '<div class="section">Загруженные исследования</div>'
   scansWithText.forEach((s, i) => {
-    scanHtml += \`<div class="sub-section">${i + 1}. ${escapeHtml(s.name)}</div>\`
-    scanHtml += \`<div class="text-block">${escapeHtml(s.ocrText)}</div>\`
+    scanHtml += `<div class="sub-section">${i + 1}. ${escapeHtml(s.name)}</div>`
+    scanHtml += `<div class="text-block">${escapeHtml(s.ocrText)}</div>`
   })
   scanHtml += '<p>&nbsp;</p>'
   return scanHtml
@@ -1042,37 +1042,37 @@ ${(() => {
       if (nlIdx > 0 && nlIdx < 100) {
         const heading = trimmed.substring(0, nlIdx).trim()
         const body = trimmed.substring(nlIdx + 1).trim()
-        cHtml += \`<div class="sub-section">${escapeHtml(heading)}</div>\`
-        cHtml += \`<div class="text-block">${escapeHtml(body)}</div>\`
+        cHtml += `<div class="sub-section">${escapeHtml(heading)}</div>`
+        cHtml += `<div class="text-block">${escapeHtml(body)}</div>`
       } else {
-        cHtml += \`<div class="text-block">${escapeHtml(trimmed)}</div>\`
+        cHtml += `<div class="text-block">${escapeHtml(trimmed)}</div>`
       }
     }
     cHtml += '<p>&nbsp;</p>'
   }
   if (results.preliminaryDiagnoses) {
     cHtml += '<div class="sub-section">Предварительные диагнозы</div>'
-    cHtml += \`<div class="text-block">${escapeHtml(results.preliminaryDiagnoses)}</div>\`
+    cHtml += `<div class="text-block">${escapeHtml(results.preliminaryDiagnoses)}</div>`
   }
   if (results.plannedExaminations) {
     cHtml += '<div class="sub-section">Плановые обследования</div>'
-    cHtml += \`<div class="text-block">${escapeHtml(results.plannedExaminations)}</div>\`
+    cHtml += `<div class="text-block">${escapeHtml(results.plannedExaminations)}</div>`
   }
   if (results.mandatoryDiagnostics) {
     cHtml += '<div class="sub-section">Обязательная лабораторная и инструментальная диагностика</div>'
-    cHtml += \`<div class="text-block">${escapeHtml(results.mandatoryDiagnostics)}</div>\`
+    cHtml += `<div class="text-block">${escapeHtml(results.mandatoryDiagnostics)}</div>`
   }
   if (results.additionalDiagnostics) {
     cHtml += '<div class="sub-section">Дополнительная визуализационная диагностика</div>'
-    cHtml += \`<div class="text-block">${escapeHtml(results.additionalDiagnostics)}</div>\`
+    cHtml += `<div class="text-block">${escapeHtml(results.additionalDiagnostics)}</div>`
   }
   if (results.preliminaryPrescriptions) {
     cHtml += '<div class="sub-section">Предварительные назначения (терапия)</div>'
-    cHtml += \`<div class="text-block">${escapeHtml(results.preliminaryPrescriptions)}</div>\`
+    cHtml += `<div class="text-block">${escapeHtml(results.preliminaryPrescriptions)}</div>`
   }
   if (results.recommendations) {
     cHtml += '<div class="sub-section">Рекомендации</div>'
-    cHtml += \`<div class="text-block">${escapeHtml(results.recommendations)}</div>\`
+    cHtml += `<div class="text-block">${escapeHtml(results.recommendations)}</div>`
   }
   return cHtml
 })()}
