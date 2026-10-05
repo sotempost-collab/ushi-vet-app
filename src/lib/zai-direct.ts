@@ -4,20 +4,23 @@
  * Приоритет:
  * 1. Polza.ai (https://api.polza.ai/api/v1) — БЫСТРЫЙ (3-5с), дешёвый
  *    - gpt-4o-mini для текста (дифдиагнозы) — 0.012 руб/запрос
- *    - gpt-4o для vision (OCR) — 3.7с (vs AnyModel 13.5с)
+ *    - google/gemini-2.5-flash для vision (OCR) — 3.4с, НЕ блокирует мед.документы
  * 2. AnyModel.org — fallback если Polza.ai недоступен
  *    - DeepSeek V4 Flash для текста — $0.05/1M
  *    - Gemini 3.7 Flash Medium для OCR — $0.6/1M
  *
- * CORS поддерживается обоими сервисами — можно вызывать прямо из браузера.
+ * 🔒 Ключи читаются из переменных окружения (process.env.NEXT_PUBLIC_*).
+ *    Они НЕ хранятся в исходном коде — задаются на сервере (relaxdev).
+ *    На GitHub Pages (без env) — пользователь вводит ключи через настройки ✨.
  */
 
 const POLZA_API_URL = 'https://api.polza.ai/api/v1/chat/completions'
 const ANYMODEL_API_URL = 'https://anymodel.org/v1/chat/completions'
 
-// 🔑 Ключи по умолчанию — вшиты в код
-const DEFAULT_POLZA_API_KEY = 'pza_L8CmjTR9HFwaW0HiOC9IqaRiUG2rnqsH'
-const DEFAULT_ANYMODEL_API_KEY = 'sk-dc9d4b7df36ba555-i2dh6j-2ec5b5b2'
+// 🔑 Ключи из переменных окружения (задаются на relaxdev в «Переменные окружения»)
+// NEXT_PUBLIC_ префикс нужен чтобы Next.js встроил их в клиентский bundle при сборке
+const DEFAULT_POLZA_API_KEY = process.env.NEXT_PUBLIC_POLZA_API_KEY || ''
+const DEFAULT_ANYMODEL_API_KEY = process.env.NEXT_PUBLIC_ANYMODEL_API_KEY || ''
 
 // 🎯 Модели
 const POLZA_TEXT_MODEL = 'gpt-4o-mini'            // быстрый, дешёвый
