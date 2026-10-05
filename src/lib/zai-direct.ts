@@ -15,7 +15,7 @@
  */
 
 const POLZA_API_URL = 'https://polza-proxy.sotem-post.workers.dev'
-const ANYMODEL_API_URL = 'https://anymodel.org/v1/chat/completions'
+const ANYMODEL_API_URL = 'https://anymodel-proxy.sotem-post.workers.dev'
 
 // 🔑 Ключи из переменных окружения (задаются на relaxdev в «Переменные окружения»)
 // NEXT_PUBLIC_ префикс нужен чтобы Next.js встроил их в клиентский bundle при сборке
@@ -32,7 +32,7 @@ function cleanEnvKey(val: string | undefined): string {
 }
 
 const DEFAULT_POLZA_API_KEY = ''  // ключ в Cloudflare Worker, не в коде
-const DEFAULT_ANYMODEL_API_KEY = cleanEnvKey(process.env.NEXT_PUBLIC_ANYMODEL_API_KEY)
+const DEFAULT_ANYMODEL_API_KEY = ''  // ключ в Cloudflare Worker, не в коде
 
 // 🎯 Модели
 const POLZA_TEXT_MODEL = 'gpt-4o-mini'            // быстрый, дешёвый
@@ -68,7 +68,7 @@ function getPolzaApiKey(): string {
 // 🆕 Проверка: есть ли рабочий ключ для сервиса
 // 🆕 Polza через Worker — всегда доступен (ключ в Cloudflare Worker, не в коде)
 const hasPolzaKey = (): boolean => true  // Worker всегда работает
-const hasAnyModelKey = (): boolean => !!getAnyModelApiKey()
+const hasAnyModelKey = (): boolean => true  // Worker всегда работает
 
 // ─────────────────────────────────────────────────────────────────────
 // Canvas ресайз изображений (для OCR)
@@ -236,7 +236,6 @@ async function callAnyModel(
   options: { maxAttempts?: number; timeoutMs?: number } = {}
 ): Promise<string> {
   const { maxAttempts = 3, timeoutMs = 120000 } = options  // 2 минуты timeout для vision
-  const apiKey = getAnyModelApiKey()
 
   let lastError: Error | null = null
 
@@ -251,7 +250,7 @@ async function callAnyModel(
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
+          // 🆕 Authorization НЕ нужен — Cloudflare Worker добавляет ключ сам
         },
         body: JSON.stringify({
           model,

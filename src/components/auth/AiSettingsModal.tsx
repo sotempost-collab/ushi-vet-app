@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
-  Sparkles, Key, Eye, EyeOff, CheckCircle2, ExternalLink, Lock,
+  Sparkles, Key, Eye, EyeOff, CheckCircle2, AlertCircle, ExternalLink,
 } from 'lucide-react'
 
 interface AiSettingsModalProps {
@@ -17,35 +17,41 @@ interface AiSettingsModalProps {
   onOpenChange: (open: boolean) => void
 }
 
+// 🔑 Ключи по умолчанию — вшиты в код
+const DEFAULT_ANYMODEL_API_KEY = ''  // ключ в Cloudflare Worker
+const DEFAULT_ZAI_API_KEY = ''  // Z.AI удалён
+
 export function AiSettingsModal({ open, onOpenChange }: AiSettingsModalProps) {
-  const [polzaKey, setPolzaKey] = useState('')
   const [anymodelKey, setAnymodelKey] = useState('')
-  const [showPolzaKey, setShowPolzaKey] = useState(false)
+  const [zaiKey, setZaiKey] = useState('')
   const [showAnymodelKey, setShowAnymodelKey] = useState(false)
-  const [polzaUsingDefault, setPolzaUsingDefault] = useState(true)
-  const [anymodelUsingDefault, setAnymodelUsingDefault] = useState(true)
+  const [showZaiKey, setShowZaiKey] = useState(false)
   const [saved, setSaved] = useState(false)
 
   useEffect(() => {
     if (open) {
-      const storedPolza = localStorage.getItem('polza_api_key')
-      const storedAnymodel = localStorage.getItem('anymodel_api_key')
-      if (storedPolza) { setPolzaKey(storedPolza); setPolzaUsingDefault(false) }
-      else { setPolzaKey(''); setPolzaUsingDefault(true) }
-      if (storedAnymodel) { setAnymodelKey(storedAnymodel); setAnymodelUsingDefault(false) }
-      else { setAnymodelKey(''); setAnymodelUsingDefault(true) }
+      setAnymodelKey(localStorage.getItem('anymodel_api_key') || DEFAULT_ANYMODEL_API_KEY)
+      setZaiKey(localStorage.getItem('zai_api_key') || DEFAULT_ZAI_API_KEY)
       setSaved(false)
     }
   }, [open])
 
   const handleSave = () => {
-    if (polzaKey.trim()) localStorage.setItem('polza_api_key', polzaKey.trim())
-    else localStorage.removeItem('polza_api_key')
-    if (anymodelKey.trim()) localStorage.setItem('anymodel_api_key', anymodelKey.trim())
-    else localStorage.removeItem('anymodel_api_key')
+    if (anymodelKey.trim()) {
+      localStorage.setItem('anymodel_api_key', anymodelKey.trim())
+    } else {
+      localStorage.removeItem('anymodel_api_key')
+    }
+    if (zaiKey.trim()) {
+      localStorage.setItem('zai_api_key', zaiKey.trim())
+    } else {
+      localStorage.removeItem('zai_api_key')
+    }
     setSaved(true)
     setTimeout(() => onOpenChange(false), 1000)
   }
+
+  const isActive = !!anymodelKey.trim() || !!zaiKey.trim()
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -56,170 +62,106 @@ export function AiSettingsModal({ open, onOpenChange }: AiSettingsModalProps) {
             Настройки AI
           </DialogTitle>
           <DialogDescription>
-            Polza.ai — основной источник (быстрый, 3-5с). AnyModel — резервный.
-            Ключи встроены в приложение и работают по умолчанию.
+            AnyModel.org — основной источник AI (дёшево, $0.05-0.6/1M токенов).
+            Z.AI — резервный fallback. Ключи уже предзаполнены — можно использовать сразу.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
           {/* Статус */}
-          <div className="p-3 rounded-lg border bg-emerald-50 border-emerald-200">
+          <div className={`p-3 rounded-lg border ${isActive ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
             <div className="flex items-center gap-2 text-sm flex-wrap">
-              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-              <span className="font-medium text-emerald-800">AI подключён и работает</span>
-              <Badge variant="outline" className="ml-auto text-emerald-700 border-emerald-300 bg-emerald-50">
-                Polza.ai + AnyModel
-              </Badge>
-            </div>
-            <div className="mt-2 text-xs text-emerald-700 flex items-center gap-1">
-              <Lock className="h-3 w-3" />
-              Вшитые ключи активны и защищены (не видны в UI)
+              {isActive ? (
+                <>
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                  <span className="font-medium text-emerald-800">AI подключён</span>
+                  <Badge variant="outline" className="ml-auto text-emerald-700 border-emerald-300 bg-emerald-50">
+                    {anymodelKey.trim() ? 'AnyModel (основной)' : 'Z.AI (резерв)'}
+                  </Badge>
+                </>
+              ) : (
+                <>
+                  <AlertCircle className="h-4 w-4 text-amber-600" />
+                  <span className="font-medium text-amber-800">Ключи не заданы</span>
+                  <span className="text-xs text-amber-700 ml-auto">AI функции недоступны</span>
+                </>
+              )}
             </div>
           </div>
 
-          {/* Polza.ai API Key — ОСНОВНОЙ */}
+          {/* AnyModel API Key — ОСНОВНОЙ */}
           <div className="space-y-1.5 p-3 rounded-lg border border-emerald-200 bg-emerald-50/30">
             <div className="flex items-center justify-between">
               <Label className="text-xs flex items-center gap-1 font-semibold">
                 <Key className="h-3 w-3 text-emerald-600" />
-                Polza.ai API Key
+                AnyModel API Key
               </Label>
               <Badge variant="outline" className="text-emerald-700 border-emerald-300 bg-emerald-50 text-xs">
-                ОСНОВНОЙ · БЫСТРЫЙ
+                ОСНОВНОЙ
               </Badge>
             </div>
-
-            {polzaUsingDefault ? (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 p-2 rounded-md bg-emerald-100/50 border border-emerald-200">
-                  <Lock className="h-4 w-4 text-emerald-600 shrink-0" />
-                  <div className="flex-1 text-sm">
-                    <div className="font-mono text-emerald-700">pza-••••••••••••••</div>
-                    <div className="text-xs text-emerald-600 italic mt-0.5">Вшитый ключ (защищён, не редактируется)</div>
-                  </div>
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  Модели: <strong>GPT-4o-mini</strong> (дифдиагнозы, 3-5с) и <strong>Gemini 2.5 Flash</strong> (OCR, 3-5с)
-                </div>
-                <div className="relative">
-                  <Input
-                    type={showPolzaKey ? 'text' : 'password'}
-                    value={polzaKey}
-                    onChange={(e) => {
-                      setPolzaKey(e.target.value)
-                      setPolzaUsingDefault(!!e.target.value.trim())
-                    }}
-                    placeholder="Введите свой ключ (необязательно)"
-                    className="pr-11 font-mono text-sm"
-                    autoComplete="off"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPolzaKey(!showPolzaKey)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    tabIndex={-1}
-                  >
-                    {showPolzaKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="relative">
-                <Input
-                  type={showPolzaKey ? 'text' : 'password'}
-                  value={polzaKey}
-                  onChange={(e) => setPolzaKey(e.target.value)}
-                  placeholder="Введите ключ Polza.ai"
-                  className="pr-11 font-mono text-sm"
-                  autoComplete="off"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPolzaKey(!showPolzaKey)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  tabIndex={-1}
-                >
-                  {showPolzaKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-            )}
-
+            <div className="relative">
+              <Input
+                type={showAnymodelKey ? 'text' : 'password'}
+                value={anymodelKey}
+                onChange={(e) => setAnymodelKey(e.target.value)}
+                placeholder={DEFAULT_ANYMODEL_API_KEY}
+                className="pr-11 font-mono text-sm"
+                autoComplete="off"
+              />
+              <button
+                type="button"
+                onClick={() => setShowAnymodelKey(!showAnymodelKey)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                tabIndex={-1}
+              >
+                {showAnymodelKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
             <div className="text-xs text-muted-foreground">
-              Получить ключ: <a href="https://polza.ai" target="_blank" rel="noopener noreferrer" className="text-emerald-700 underline inline-flex items-center gap-0.5">
-                polza.ai <ExternalLink className="h-3 w-3" />
+              Получить ключ: <a href="https://anymodel.org" target="_blank" rel="noopener noreferrer" className="text-emerald-700 underline inline-flex items-center gap-0.5">
+                anymodel.org <ExternalLink className="h-3 w-3" />
               </a>
+              <br />
+              <span className="text-emerald-700 font-medium">
+                ✓ Используется для: дифдиагнозов (DeepSeek V4 Flash, $0.05/1M) и OCR (Gemini 3.7 Flash, $0.6/1M)
+              </span>
             </div>
           </div>
 
-          {/* AnyModel API Key — РЕЗЕРВНЫЙ */}
+          {/* Z.AI API Key — РЕЗЕРВНЫЙ */}
           <div className="space-y-1.5 p-3 rounded-lg border border-amber-200 bg-amber-50/30">
             <div className="flex items-center justify-between">
               <Label className="text-xs flex items-center gap-1 font-semibold">
                 <Key className="h-3 w-3 text-amber-600" />
-                AnyModel API Key
+                Z.AI API Key
               </Label>
               <span className="text-xs text-muted-foreground">резервный fallback</span>
             </div>
-
-            {anymodelUsingDefault ? (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 p-2 rounded-md bg-amber-100/50 border border-amber-200">
-                  <Lock className="h-4 w-4 text-amber-600 shrink-0" />
-                  <div className="flex-1 text-sm">
-                    <div className="font-mono text-amber-700">sk-••••••••••••••</div>
-                    <div className="text-xs text-amber-600 italic mt-0.5">Вшитый ключ (защищён, не редактируется)</div>
-                  </div>
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  Модели: <strong>DeepSeek V4 Flash</strong> (дифдиагнозы) и <strong>Gemini 3.7 Flash</strong> (OCR)
-                </div>
-                <div className="relative">
-                  <Input
-                    type={showAnymodelKey ? 'text' : 'password'}
-                    value={anymodelKey}
-                    onChange={(e) => {
-                      setAnymodelKey(e.target.value)
-                      setAnymodelUsingDefault(!!e.target.value.trim())
-                    }}
-                    placeholder="Введите свой ключ (необязательно)"
-                    className="pr-11 font-mono text-sm"
-                    autoComplete="off"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowAnymodelKey(!showAnymodelKey)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    tabIndex={-1}
-                  >
-                    {showAnymodelKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="relative">
-                <Input
-                  type={showAnymodelKey ? 'text' : 'password'}
-                  value={anymodelKey}
-                  onChange={(e) => setAnymodelKey(e.target.value)}
-                  placeholder="Введите ключ AnyModel"
-                  className="pr-11 font-mono text-sm"
-                  autoComplete="off"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowAnymodelKey(!showAnymodelKey)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  tabIndex={-1}
-                >
-                  {showAnymodelKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-            )}
-
+            <div className="relative">
+              <Input
+                type={showZaiKey ? 'text' : 'password'}
+                value={zaiKey}
+                onChange={(e) => setZaiKey(e.target.value)}
+                placeholder={DEFAULT_ZAI_API_KEY}
+                className="pr-11 font-mono text-sm"
+                autoComplete="off"
+              />
+              <button
+                type="button"
+                onClick={() => setShowZaiKey(!showZaiKey)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                tabIndex={-1}
+              >
+                {showZaiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
             <div className="text-xs text-muted-foreground">
-              Получить ключ: <a href="https://anymodel.org" target="_blank" rel="noopener noreferrer" className="text-amber-700 underline inline-flex items-center gap-0.5">
-                anymodel.org <ExternalLink className="h-3 w-3" />
+              Получить ключ: <a href="https://open.bigmodel.cn/usermode/apikey" target="_blank" rel="noopener noreferrer" className="text-amber-700 underline inline-flex items-center gap-0.5">
+                open.bigmodel.cn <ExternalLink className="h-3 w-3" />
               </a>
+              <br />
+              <span className="italic">Используется только если AnyModel недоступен (GLM-4.5-air / GLM-4.5v)</span>
             </div>
           </div>
 
@@ -230,9 +172,9 @@ export function AiSettingsModal({ open, onOpenChange }: AiSettingsModalProps) {
               Активные модели:
             </div>
             <div className="ml-4 space-y-1">
-              <div><strong>GPT-4o-mini</strong> (Polza.ai) — дифдиагнозы, 3-5с</div>
-              <div><strong>Gemini 2.5 Flash</strong> (Polza.ai) — OCR, 3-5с</div>
-              <div className="text-muted-foreground italic">Резерв: DeepSeek V4 Flash + Gemini 3.7 Flash (AnyModel)</div>
+              <div><strong>DeepSeek V4 Flash</strong> (ds/deepseek-v4-flash) — текст, $0.05/1M токенов</div>
+              <div><strong>Gemini 3.7 Flash Medium</strong> (ag/gemini-3.7-flash-medium) — vision/OCR, $0.6/1M токенов</div>
+              <div className="text-muted-foreground italic">Резерв: GLM-4.5-air / GLM-4.5v (Z.AI)</div>
             </div>
           </div>
 
