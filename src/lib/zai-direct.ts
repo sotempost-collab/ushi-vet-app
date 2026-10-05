@@ -14,7 +14,7 @@
  *    На GitHub Pages (без env) — пользователь вводит ключи через настройки ✨.
  */
 
-const POLZA_API_URL = 'https://api.polza.ai/api/v1/chat/completions'
+const POLZA_API_URL = 'https://polza-proxy.sotem-post.workers.dev'
 const ANYMODEL_API_URL = 'https://anymodel.org/v1/chat/completions'
 
 // 🔑 Ключи из переменных окружения (задаются на relaxdev в «Переменные окружения»)
@@ -31,7 +31,7 @@ function cleanEnvKey(val: string | undefined): string {
   return trimmed
 }
 
-const DEFAULT_POLZA_API_KEY = cleanEnvKey(process.env.NEXT_PUBLIC_POLZA_API_KEY)
+const DEFAULT_POLZA_API_KEY = ''  // ключ в Cloudflare Worker, не в коде
 const DEFAULT_ANYMODEL_API_KEY = cleanEnvKey(process.env.NEXT_PUBLIC_ANYMODEL_API_KEY)
 
 // 🎯 Модели
@@ -66,7 +66,8 @@ function getPolzaApiKey(): string {
 }
 
 // 🆕 Проверка: есть ли рабочий ключ для сервиса
-const hasPolzaKey = (): boolean => !!getPolzaApiKey()
+// 🆕 Polza через Worker — всегда доступен (ключ в Cloudflare Worker, не в коде)
+const hasPolzaKey = (): boolean => true  // Worker всегда работает
 const hasAnyModelKey = (): boolean => !!getAnyModelApiKey()
 
 // ─────────────────────────────────────────────────────────────────────
@@ -141,7 +142,6 @@ async function callPolza(
   options: { maxAttempts?: number; timeoutMs?: number } = {}
 ): Promise<string> {
   const { maxAttempts = 3, timeoutMs = 60000 } = options
-  const apiKey = getPolzaApiKey()
 
   let lastError: Error | null = null
 
@@ -156,7 +156,7 @@ async function callPolza(
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
+          // 🆕 Authorization НЕ нужен — Cloudflare Worker добавляет ключ сам
         },
         body: JSON.stringify({
           model,
