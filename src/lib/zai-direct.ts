@@ -14,8 +14,8 @@
  *    На GitHub Pages (без env) — пользователь вводит ключи через настройки ✨.
  */
 
-const POLZA_API_URL = 'https://polza-proxy.sotem-post.workers.dev'
-const ANYMODEL_API_URL = 'https://anymodel-proxy.sotem-post.workers.dev'
+const POLZA_API_URL = '/api/polza'
+const ANYMODEL_API_URL = '/api/anymodel'
 
 // 🔑 Ключи из переменных окружения (задаются на relaxdev в «Переменные окружения»)
 // NEXT_PUBLIC_ префикс нужен чтобы Next.js встроил их в клиентский bundle при сборке
