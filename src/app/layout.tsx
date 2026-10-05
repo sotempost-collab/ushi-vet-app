@@ -83,6 +83,7 @@ export default function RootLayout({
             });
           }
         ` }} />
+      <meta httpEquiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://*.sotem-post.workers.dev https://*.workers.dev https://relaxdev.ru https://*.relaxdev.ru; media-src 'self' blob:; worker-src 'self' blob:; frame-ancestors 'self';" />
       </head>
       <body
         className={`antialiased bg-background text-foreground`}
