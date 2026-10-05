@@ -19,8 +19,20 @@ const ANYMODEL_API_URL = 'https://anymodel.org/v1/chat/completions'
 
 // 🔑 Ключи из переменных окружения (задаются на relaxdev в «Переменные окружения»)
 // NEXT_PUBLIC_ префикс нужен чтобы Next.js встроил их в клиентский bundle при сборке
-const DEFAULT_POLZA_API_KEY = process.env.NEXT_PUBLIC_POLZA_API_KEY || ''
-const DEFAULT_ANYMODEL_API_KEY = process.env.NEXT_PUBLIC_ANYMODEL_API_KEY || ''
+// 🆕 Обработка заглушки relaxdev: если env не задан, relaxdev подставляет
+// "auto-generated-stub-for-build" — отбрасываем такие значения
+function cleanEnvKey(val: string | undefined): string {
+  if (!val) return ''
+  const trimmed = val.trim()
+  // Заглушки от relaxdev и других PaaS
+  if (trimmed === 'auto-generated-stub-for-build' || trimmed.startsWith('auto-generated')) return ''
+  // Ключи обычно длиннее 10 символов
+  if (trimmed.length < 10) return ''
+  return trimmed
+}
+
+const DEFAULT_POLZA_API_KEY = cleanEnvKey(process.env.NEXT_PUBLIC_POLZA_API_KEY)
+const DEFAULT_ANYMODEL_API_KEY = cleanEnvKey(process.env.NEXT_PUBLIC_ANYMODEL_API_KEY)
 
 // 🎯 Модели
 const POLZA_TEXT_MODEL = 'gpt-4o-mini'            // быстрый, дешёвый
@@ -52,6 +64,10 @@ function getPolzaApiKey(): string {
   if (typeof window === 'undefined') return DEFAULT_POLZA_API_KEY
   return localStorage.getItem('polza_api_key') || DEFAULT_POLZA_API_KEY
 }
+
+// 🆕 Проверка: есть ли рабочий ключ для сервиса
+const hasPolzaKey = (): boolean => !!getPolzaApiKey()
+const hasAnyModelKey = (): boolean => !!getAnyModelApiKey()
 
 // ─────────────────────────────────────────────────────────────────────
 // Canvas ресайз изображений (для OCR)
@@ -390,17 +406,35 @@ ${voiceNotesSummary || 'нет голосовых заметок'}
     { role: 'user', content: prompt },
   ]
 
-  // 1) Polza.ai — БЫСТРЫЙ (gpt-4o-mini, 3-5с)
-  console.log('[AI] Использую Polza.ai, модель:', POLZA_TEXT_MODEL)
-  try {
-    return await callPolza(POLZA_TEXT_MODEL, messages, { timeoutMs: 60000 })
-  } catch (e: any) {
-    console.warn('[AI] Polza.ai не сработал:', e.message, '— переключаюсь на AnyModel')
+  // 1) Polza.ai — БЫСТРЫЙ (gpt-4o-mini, 3-5с) — только если есть ключ
+  if (hasPolzaKey()) {
+    console.log('[AI] Использую Polza.ai, модель:', POLZA_TEXT_MODEL)
+    try {
+      return await callPolza(POLZA_TEXT_MODEL, messages, { timeoutMs: 60000 })
+    } catch (e: any) {
+      console.warn('[AI] Polza.ai не сработал:', e.message, '— переключаюсь на AnyModel')
+    }
+  } else {
+    console.log('[AI] Polza.ai: ключ не задан — использую AnyModel')
   }
 
-  // 2) AnyModel — fallback (DeepSeek V4 Flash, ~50с)
-  console.log('[AI] Использую AnyModel, модель:', ANYMODEL_TEXT_MODEL)
-  return callAnyModel(ANYMODEL_TEXT_MODEL, messages, { timeoutMs: 120000 })
+  // 2) AnyModel — fallback (DeepSeek V4 Flash, ~50с) — только если есть ключ
+  if (hasAnyModelKey()) {
+    console.log('[AI] Использую AnyModel, модель:', ANYMODEL_TEXT_MODEL)
+    try {
+      return await callAnyModel(ANYMODEL_TEXT_MODEL, messages, { timeoutMs: 120000 })
+    } catch (e: any) {
+      console.warn('[AI] AnyModel не сработал:', e.message)
+    }
+  }
+
+  throw new Error(
+    'Не настроены API ключи для AI.\n\n' +
+    'Что делать:\n' +
+    '• Нажмите ✨ в правом нижнем углу\n' +
+    '• Введите ключ Polza.ai или AnyModel\n' +
+    '• Сохранить → перезагрузить страницу'
+  )
 }
 
 export async function ocrImageDirect(imageDataUrl: string, fileName?: string): Promise<string> {
@@ -440,58 +474,43 @@ export async function ocrImageDirect(imageDataUrl: string, fileName?: string): P
     },
   ]
 
-  // 1) Polza.ai (gpt-4o) — БЫСТРЫЙ OCR, 3-5с
-  console.log('[OCR] Polza.ai (gpt-4o)')
-  try {
-    const result = await callPolza(POLZA_VISION_MODEL, messages, { timeoutMs: 60000 })
-    if (result && result.trim().length > 0) {
-      return result
+  // 1) Polza.ai (Gemini 2.5 Flash) — БЫСТРЫЙ OCR, 3-5с — только если есть ключ
+  if (hasPolzaKey()) {
+    console.log('[OCR] Polza.ai (' + POLZA_VISION_MODEL + ')')
+    try {
+      const result = await callPolza(POLZA_VISION_MODEL, messages, { timeoutMs: 60000 })
+      if (result && result.trim().length > 0) {
+        return result
+      }
+      throw new Error('Polza.ai вернул пустой ответ')
+    } catch (e: any) {
+      console.warn('[OCR] Polza.ai не сработал:', e.message, '— пробую AnyModel')
     }
-    throw new Error('Polza.ai вернул пустой ответ')
-  } catch (e: any) {
-    console.warn('[OCR] Polza.ai не сработал:', e.message, '— пробую AnyModel')
+  } else {
+    console.log('[OCR] Polza.ai: ключ не задан — использую AnyModel')
   }
 
-  // 2) AnyModel (Gemini 3.7 Flash) — fallback, ~13с
-  console.log('[OCR] AnyModel (gemini-3.7-flash-medium)')
-  try {
-    const result = await callAnyModel(ANYMODEL_VISION_MODEL, messages, { timeoutMs: 120000 })
-    if (result && result.trim().length > 0) {
-      return result
+  // 2) AnyModel (Gemini 3.7 Flash) — fallback, ~13с — только если есть ключ
+  if (hasAnyModelKey()) {
+    console.log('[OCR] AnyModel (gemini-3.7-flash-medium)')
+    try {
+      const result = await callAnyModel(ANYMODEL_VISION_MODEL, messages, { timeoutMs: 120000 })
+      if (result && result.trim().length > 0) {
+        return result
+      }
+      throw new Error('AnyModel вернул пустой ответ')
+    } catch (e: any) {
+      console.warn('[OCR] AnyModel не сработал:', e.message)
     }
-    throw new Error('AnyModel вернул пустой ответ')
-  } catch (e: any) {
-    console.warn('[OCR] AnyModel не сработал:', e.message)
-
-    // Понятное сообщение для пользователя
-    const msg = e.message || ''
-    if (msg.includes('429') || msg.includes('лимит')) {
-      throw new Error(
-        'Превышен лимит запросов.\n\n' +
-        'Что делать:\n' +
-        '• Подождите 1-2 минуты — лимит сбросится\n' +
-        '• Не отправляйте несколько запросов одновременно\n' +
-        '• Используйте «Ручной ввод данных исследования» ниже'
-      )
-    }
-    if (msg.includes('401')) {
-      throw new Error(
-        'Неверный API ключ.\n\n' +
-        'Что делать:\n' +
-        '• Нажмите ✨ в правом нижнем углу\n' +
-        '• Проверьте ключ (или используйте вшитый)'
-      )
-    }
-    if (msg.includes('Failed to fetch') || msg.includes('Network') || msg.includes('ERR_')) {
-      throw new Error(
-        'Не удалось связаться с AnyModel (ошибка сети).\n\n' +
-        'Что делать:\n' +
-        '• Проверьте интернет-соединение\n' +
-        '• Отключите блокировщики рекламы (AdBlock/uBlock) для этого сайта\n' +
-        '• Попробуйте другую сеть (мобильный интернет вместо Wi-Fi)\n' +
-        '• Попробуйте через 1-2 минуты'
-      )
-    }
-    throw e
   }
+
+  // Все источники недоступны — понятное сообщение
+  throw new Error(
+    'Не удалось распознать текст.\n\n' +
+    'Что делать:\n' +
+    '• Нажмите ✨ в правом нижнем углу\n' +
+    '• Проверьте что ключ Polza.ai задан\n' +
+    '• Подождите 1-2 минуты если превышен лимит\n' +
+    '• Используйте «Ручной ввод данных исследования» ниже'
+  )
 }
