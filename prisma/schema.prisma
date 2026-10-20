@@ -18,7 +18,9 @@ datasource db {
 // ============ КЛИНИКИ ============
 model Clinic {
   id          String   @id @default(cuid())
-  slug        String   @unique // 'acme-vet' — для входа и URL
+  // Nullable + unique: позволяет db push добавить колонку в уже непустую таблицу.
+  // seed-скрипт заполнит slug для существующих клиник из name.
+  slug        String?  @unique
   name        String   // Название клиники
   address     String?
   phone       String?
