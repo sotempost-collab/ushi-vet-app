@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Проверка — не занят ли логин
-    const existing = await prisma.clinicUser.findUnique({ where: { username: adminUsername } })
+    const existing = await prisma.clinicUser.findUnique({ where: { username: adminUsername.toLowerCase().trim() } })
     if (existing) {
       return NextResponse.json({ error: 'Логин уже занят' }, { status: 409 })
     }
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
         visitLimit: 10,
         users: {
           create: {
-            username: adminUsername,
+            username: adminUsername.toLowerCase().trim(),
             password: bcrypt.hashSync(adminPassword, 10),
             displayName: adminDisplayName || adminUsername,
             role: 'admin',

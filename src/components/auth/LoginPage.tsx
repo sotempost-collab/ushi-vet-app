@@ -10,7 +10,8 @@ import { PawPrint, LogIn, Eye, EyeOff, AlertCircle } from 'lucide-react'
 
 export function LoginPage({ onSwitchToRegister }: { onSwitchToRegister?: () => void }) {
   const login = useAuthStore((s) => s.login)
-  const initializeDefault = useAuthStore((s) => s.initializeDefault)
+  const restoreSession = useAuthStore((s) => s.restoreSession)
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
 
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -18,11 +19,14 @@ export function LoginPage({ onSwitchToRegister }: { onSwitchToRegister?: () => v
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
+  // При загрузке — пробуем восстановить сессию
   useEffect(() => {
-    initializeDefault()
-  }, [initializeDefault])
+    if (!isAuthenticated) {
+      restoreSession()
+    }
+  }, [restoreSession, isAuthenticated])
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
     if (!username.trim() || !password) {
@@ -30,19 +34,20 @@ export function LoginPage({ onSwitchToRegister }: { onSwitchToRegister?: () => v
       return
     }
     setLoading(true)
-    setTimeout(() => {
-      const result = login(username, password)
+    try {
+      const result = await login(username, password)
       if (!result.success) {
         setError(result.error || 'Ошибка входа.')
-        setLoading(false)
       }
-    }, 200)
+    } catch (e: any) {
+      setError('Ошибка: ' + e.message)
+    }
+    setLoading(false)
   }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-emerald-50 via-sky-50 to-amber-50 p-4 safe-area-top">
       <div className="w-full max-w-md space-y-6">
-        {/* Логотип */}
         <div className="text-center space-y-3">
           <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-700 shadow-lg shadow-emerald-500/30">
             <PawPrint className="h-12 w-12 text-white" />
@@ -55,7 +60,6 @@ export function LoginPage({ onSwitchToRegister }: { onSwitchToRegister?: () => v
           </div>
         </div>
 
-        {/* Форма входа */}
         <Card className="border-emerald-200 shadow-lg">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-emerald-800">
@@ -101,11 +105,7 @@ export function LoginPage({ onSwitchToRegister }: { onSwitchToRegister?: () => v
                     tabIndex={-1}
                     aria-label={showPassword ? 'Скрыть пароль' : 'Показать пароль'}
                   >
-                    {showPassword ? (
-                      <EyeOff className="h-4 w-4" />
-                    ) : (
-                      <Eye className="h-4 w-4" />
-                    )}
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
               </div>
@@ -135,15 +135,16 @@ export function LoginPage({ onSwitchToRegister }: { onSwitchToRegister?: () => v
                 )}
               </Button>
             </form>
+
+            {onSwitchToRegister && (
+              <div className="text-center pt-4">
+                <button type="button" onClick={onSwitchToRegister} className="text-xs text-emerald-700 hover:text-emerald-900 underline">
+                  Нет аккаунта? Зарегистрировать клинику
+                </button>
+              </div>
+            )}
           </CardContent>
         </Card>
-        {onSwitchToRegister && (
-          <div className="text-center pt-2">
-            <button type="button" onClick={onSwitchToRegister} className="text-xs text-emerald-700 hover:text-emerald-900 underline">
-              Нет аккаунта? Зарегистрировать клинику
-            </button>
-          </div>
-        )}
       </div>
     </div>
   )
