@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { PawPrint, LogIn, Eye, EyeOff, AlertCircle } from 'lucide-react'
 
-export function LoginPage() {
+export function LoginPage({ onSwitchToRegister }: { onSwitchToRegister?: () => void }) {
   const login = useAuthStore((s) => s.login)
   const initializeDefault = useAuthStore((s) => s.initializeDefault)
 
@@ -137,6 +137,13 @@ export function LoginPage() {
             </form>
           </CardContent>
         </Card>
+        {onSwitchToRegister && (
+          <div className="text-center pt-2">
+            <button type="button" onClick={onSwitchToRegister} className="text-xs text-emerald-700 hover:text-emerald-900 underline">
+              Нет аккаунта? Зарегистрировать клинику
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )

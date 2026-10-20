@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useAuthStore } from '@/store/authStore'
 import { LoginPage } from '@/components/auth/LoginPage'
+import { RegisterPage } from '@/components/auth/RegisterPage'
 import { UserManagement } from '@/components/auth/UserManagement'
 import { AiSettingsModal } from '@/components/auth/AiSettingsModal'
 import { Button } from '@/components/ui/button'
@@ -15,53 +16,14 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   const initializeDefault = useAuthStore((s) => s.initializeDefault)
   const [showUserManagement, setShowUserManagement] = useState(false)
   const [showAiSettings, setShowAiSettings] = useState(false)
-  // 🆕 Для индикации того, что AnyModel активен
-  const [anyModelActive, setAnyModelActive] = useState(false)
-
-  // ⚠️ В статическом экспорте persist middleware гидратирует localStorage синхронно
-  // при создании store. Но React SSR рендерит до этого.
-  // Решение: используем hasHydrated + polling fallback.
+  const [showRegister, setShowRegister] = useState(false)
   const [hydrated, setHydrated] = useState(false)
 
   useEffect(() => {
-    let attempts = 0
-    const checkHydration = () => {
-      attempts++
-      if (useAuthStore.persist.hasHydrated()) {
-        setHydrated(true)
-        return
-      }
-      if (attempts < 20) {
-        setTimeout(checkHydration, 50)
-      } else {
-        // Fallback — через 1 секунду всё равно показываем UI
-        setHydrated(true)
-      }
-    }
-    checkHydration()
-  }, [])
-
-  // Инициализация admin по умолчанию при первом запуске
-  useEffect(() => {
+    setHydrated(true)
     initializeDefault()
   }, [initializeDefault])
 
-  // 🆕 Проверяем, задан ли какой-то AI ключ (Z.AI или AnyModel).
-  // Вшитые ключи (DEFAULT_*_API_KEY в zai-direct.ts) работают всегда,
-  // даже если localStorage пустой. Поэтому anyModelActive = true по умолчанию.
-  useEffect(() => {
-    const updateAnyModelState = () => {
-      const hasZai = !!localStorage.getItem('zai_api_key')
-      const hasAnymodel = !!localStorage.getItem('anymodel_api_key')
-      // 🆕 Вшитые ключи работают всегда — AI активен даже если localStorage пустой
-      setAnyModelActive(true)  // ← всегда true, т.к. DEFAULT ключи активны
-    }
-    updateAnyModelState()
-    window.addEventListener('storage', updateAnyModelState)
-    return () => window.removeEventListener('storage', updateAnyModelState)
-  }, [showAiSettings])
-
-  // Пока не гидратированы — показываем loader
   if (!hydrated) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-emerald-50 via-sky-50 to-amber-50">
@@ -73,12 +35,13 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     )
   }
 
-  // Если не авторизован — показываем страницу входа
   if (!isAuthenticated || !currentUser) {
-    return <LoginPage />
+    if (showRegister) {
+      return <RegisterPage onSwitchToLogin={() => setShowRegister(false)} />
+    }
+    return <LoginPage onSwitchToRegister={() => setShowRegister(true)} />
   }
 
-  // Иначе — показываем приложение + кнопки управления в шапке
   return (
     <>
       {children}
@@ -86,27 +49,17 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
       <div className="fixed bottom-4 right-4 z-50 flex gap-2 pb-[env(safe-area-inset-bottom)]">
         <div className="px-3 py-2 rounded-lg bg-white/95 backdrop-blur shadow-md border border-emerald-200 text-xs text-emerald-700 flex items-center gap-1.5">
           <UserIcon className="h-3.5 w-3.5" />
-          <span className="font-medium max-w-[120px] truncate">
-            {currentUser.displayName}
-          </span>
+          <span className="font-medium max-w-[120px] truncate">{currentUser.displayName}</span>
         </div>
 
-        {/* 🆕 Кнопка настроек AI */}
         <Button
           onClick={() => setShowAiSettings(true)}
           variant="outline"
           size="sm"
-          className={`bg-white/95 backdrop-blur shadow-md h-10 w-10 p-0 ${
-            anyModelActive
-              ? 'border-emerald-400 text-emerald-700 hover:bg-emerald-50'
-              : 'border-amber-300 text-amber-700 hover:bg-amber-50'
-          }`}
-          title={anyModelActive ? 'Настройки AI (AI подключён)' : 'Настройки AI (используется бесплатный Worker)'}
+          className="bg-white/95 backdrop-blur shadow-md h-10 w-10 p-0 border-emerald-400 text-emerald-700 hover:bg-emerald-50"
+          title="Настройки AI"
         >
           <Sparkles className="h-4 w-4" />
-          {anyModelActive && (
-            <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-white" />
-          )}
         </Button>
 
         {currentUser.role === 'admin' && (
@@ -122,11 +75,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
         )}
 
         <Button
-          onClick={() => {
-            if (confirm('Выйти из системы?')) {
-              logout()
-            }
-          }}
+          onClick={() => { if (confirm('Выйти?')) logout() }}
           variant="outline"
           size="sm"
           className="bg-white/95 backdrop-blur shadow-md border-rose-200 text-rose-700 hover:bg-rose-50 h-10 w-10 p-0"
@@ -136,16 +85,8 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
         </Button>
       </div>
 
-      <UserManagement
-        open={showUserManagement}
-        onOpenChange={setShowUserManagement}
-      />
-
-      {/* 🆕 Окно настроек AI */}
-      <AiSettingsModal
-        open={showAiSettings}
-        onOpenChange={setShowAiSettings}
-      />
+      <UserManagement open={showUserManagement} onOpenChange={setShowUserManagement} />
+      <AiSettingsModal open={showAiSettings} onOpenChange={setShowAiSettings} />
     </>
   )
 }

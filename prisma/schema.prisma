@@ -1,32 +1,92 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+// Prisma schema for multi-tenant vet SaaS
+// БД: PostgreSQL (создана на relaxdev)
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+// ============ КЛИНИКИ ============
+model Clinic {
+  id          String   @id @default(cuid())
+  name        String   // Название клиники
+  address     String?  // Адрес
+  phone       String?  // Телефон
+  plan        String   @default("free") // free | basic | pro
+  visitLimit  Int      @default(10) // лимит приёмов в месяц (для тарифа)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       ClinicUser[]
+  visits      Visit[]
 }
 
-model Post {
-  id        String   @id @default(cuid())
-  title     String
-  content   String?
-  published Boolean  @default(false)
-  authorId  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+// ============ ПОЛЬЗОВАТЕЛИ КЛИНИКИ ============
+model ClinicUser {
+  id          String   @id @default(cuid())
+  username    String   @unique
+  password    String   // hash пароля (bcrypt)
+  displayName String   // ФИО врача
+  role        String   @default("vet") // admin | vet
+  clinicId    String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  clinic      Clinic   @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  visits      Visit[]  // визиты, созданные этим врачом
+}
+
+// ============ ВИЗИТЫ (ПРИЁМЫ) ============
+model Visit {
+  id              String   @id @default(cuid())
+  clinicId        String
+  doctorId        String
+  // Данные пациента
+  species         String   // dog | cat | other
+  weight          String   // вес в кг
+  visitDate       String   // дата приёма
+  // Анамнез (все поля в JSON)
+  anamnesis       Json     // Record<string, string>
+  // Осмотр (все системы в JSON)
+  examination     Json     // Record<string, ExaminationParameter[]>
+  // Аускультация
+  auscultation    Json     // { rhythm, bpm, murmurs, notes }
+  // Сканы (файлы + OCR-текст)
+  scans           Json     // ScanFile[]
+  // Результаты
+  results         Json     // Results object
+  // AI-заключение
+  aiResult        String?  // текст AI-генерации
+  aiGeneratedAt   String?  // дата генерации
+  // Таймер приёма
+  visitStartedAt  Int?     // timestamp начала
+  visitEndedAt    Int?     // timestamp окончания
+  visitDurationMs Int      @default(0)
+  // Метаданные
+  visitSummary    String   @default("") // краткое описание для списка
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  clinic          Clinic     @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  doctor          ClinicUser @relation(fields: [doctorId], references: [id])
+
+  @@index([clinicId])
+  @@index([doctorId])
+}
+
+// ============ СЕССИИ (для авторизации) ============
+model Session {
+  id          String   @id @default(cuid())
+  token       String   @unique // session token
+  userId      String
+  clinicId    String
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([token])
+  @@index([userId])
 }
