@@ -1,3 +1,9 @@
+// Мультитенант auth-store: серверная авторизация с указанием клиники.
+//
+// Логин: login(clinicSlug, username, password) → POST /api/auth/login →
+//   { success, token, user, clinic, expiresAt }.
+// Хранится в localStorage только { token, currentUser, currentClinic, isAuthenticated }.
+
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
@@ -5,49 +11,88 @@ export interface User {
   id: string
   username: string
   displayName: string
-  role: 'admin' | 'vet'
+  role: 'admin' | 'vet' | 'receptionist'
 }
 
 export interface Clinic {
   id: string
+  slug: string // ← короткое имя для входа и URL
   name: string
   plan: string
   visitLimit: number
 }
 
 interface AuthState {
-  users: User[]
+  token: string | null
   currentUser: User | null
   currentClinic: Clinic | null
   isAuthenticated: boolean
-  token: string | null
-  
-  login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>
+
+  login: (
+    clinicSlug: string,
+    username: string,
+    password: string,
+  ) => Promise<{ success: boolean; error?: string }>
   logout: () => Promise<void>
-  initializeDefault: () => void
   restoreSession: () => Promise<void>
+  clearSession: () => void
 }
 
 export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
-      users: [],
+      token: null,
       currentUser: null,
       currentClinic: null,
       isAuthenticated: false,
-      token: null,
 
-      initializeDefault: () => {
-        // Ничего не делаем — пользователи в PostgreSQL, не в localStorage
+      login: async (clinicSlug, username, password) => {
+        try {
+          const resp = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ clinicSlug, username, password }),
+          })
+          const data = await resp.json()
+
+          if (!resp.ok || !data.success) {
+            return { success: false, error: data.error || 'Ошибка входа' }
+          }
+
+          set({
+            token: data.token,
+            currentUser: {
+              id: data.user.id,
+              username: data.user.username,
+              displayName: data.user.displayName,
+              role: data.user.role,
+            },
+            currentClinic: {
+              id: data.clinic.id,
+              slug: data.clinic.slug,
+              name: data.clinic.name,
+              plan: data.clinic.plan,
+              visitLimit: data.clinic.visitLimit,
+            },
+            isAuthenticated: true,
+          })
+          return { success: true }
+        } catch (e: any) {
+          return {
+            success: false,
+            error:
+              'Не удалось подключиться к серверу. Проверьте, что приложение запущено с поддержкой API-роутов.',
+          }
+        }
       },
 
       restoreSession: async () => {
         const token = get().token
         if (!token) return
-        
+
         try {
           const resp = await fetch('/api/auth/me', {
-            headers: { 'Authorization': `Bearer ${token}` }
+            headers: { Authorization: `Bearer ${token}` },
           })
           if (resp.ok) {
             const data = await resp.json()
@@ -57,37 +102,22 @@ export const useAuthStore = create<AuthState>()(
                 currentClinic: data.clinic,
                 isAuthenticated: true,
               })
-            } else {
-              set({ currentUser: null, currentClinic: null, isAuthenticated: false, token: null })
+              return
             }
           }
-        } catch {
-          set({ currentUser: null, currentClinic: null, isAuthenticated: false, token: null })
-        }
-      },
-
-      login: async (username: string, password: string) => {
-        try {
-          const resp = await fetch('/api/auth/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password }),
-          })
-          const data = await resp.json()
-          
-          if (!resp.ok || !data.success) {
-            return { success: false, error: data.error || 'Ошибка входа' }
-          }
-
           set({
-            currentUser: data.user,
-            currentClinic: data.clinic,
-            isAuthenticated: true,
-            token: data.token,
+            currentUser: null,
+            currentClinic: null,
+            isAuthenticated: false,
+            token: null,
           })
-          return { success: true }
-        } catch (e: any) {
-          return { success: false, error: 'Ошибка сети: ' + e.message }
+        } catch {
+          set({
+            currentUser: null,
+            currentClinic: null,
+            isAuthenticated: false,
+            token: null,
+          })
         }
       },
 
@@ -97,11 +127,25 @@ export const useAuthStore = create<AuthState>()(
           try {
             await fetch('/api/auth/logout', {
               method: 'POST',
-              headers: { 'Authorization': `Bearer ${token}` },
+              headers: { Authorization: `Bearer ${token}` },
             })
           } catch {}
         }
-        set({ currentUser: null, currentClinic: null, isAuthenticated: false, token: null })
+        set({
+          token: null,
+          currentUser: null,
+          currentClinic: null,
+          isAuthenticated: false,
+        })
+      },
+
+      clearSession: () => {
+        set({
+          token: null,
+          currentUser: null,
+          currentClinic: null,
+          isAuthenticated: false,
+        })
       },
     }),
     {

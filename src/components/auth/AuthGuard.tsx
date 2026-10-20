@@ -7,22 +7,26 @@ import { RegisterPage } from '@/components/auth/RegisterPage'
 import { UserManagement } from '@/components/auth/UserManagement'
 import { AiSettingsModal } from '@/components/auth/AiSettingsModal'
 import { Button } from '@/components/ui/button'
-import { Users, LogOut, User as UserIcon, Sparkles } from 'lucide-react'
+import { Users, LogOut, User as UserIcon, Sparkles, Building2 } from 'lucide-react'
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
   const currentUser = useAuthStore((s) => s.currentUser)
+  const currentClinic = useAuthStore((s) => s.currentClinic)
+  const restoreSession = useAuthStore((s) => s.restoreSession)
   const logout = useAuthStore((s) => s.logout)
-  const initializeDefault = useAuthStore((s) => s.initializeDefault)
+
   const [showUserManagement, setShowUserManagement] = useState(false)
   const [showAiSettings, setShowAiSettings] = useState(false)
   const [showRegister, setShowRegister] = useState(false)
   const [hydrated, setHydrated] = useState(false)
 
+  // Гидратация + проверка сохранённой сессии.
   useEffect(() => {
     setHydrated(true)
-    initializeDefault()
-  }, [initializeDefault])
+    // Если в localStorage есть token — проверим, валиден ли он.
+    restoreSession()
+  }, [restoreSession])
 
   if (!hydrated) {
     return (
@@ -39,17 +43,30 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     if (showRegister) {
       return <RegisterPage onSwitchToLogin={() => setShowRegister(false)} />
     }
-    return <LoginPage onSwitchToRegister={() => setShowRegister(true)} />
+    return (
+      <LoginPage onSwitchToRegister={() => setShowRegister(true)} />
+    )
   }
 
   return (
     <>
       {children}
 
-      <div className="fixed bottom-4 right-4 z-50 flex gap-2 pb-[env(safe-area-inset-bottom)]">
+      <div className="fixed bottom-4 right-4 z-50 flex gap-2 pb-[env(safe-area-inset-bottom)] flex-wrap justify-end max-w-[calc(100vw-2rem)]">
+        {/* Бейдж клиники */}
+        <div className="px-3 py-2 rounded-lg bg-white/95 backdrop-blur shadow-md border border-emerald-200 text-xs text-emerald-700 flex items-center gap-1.5">
+          <Building2 className="h-3.5 w-3.5" />
+          <span className="font-medium max-w-[100px] truncate">
+            {currentClinic?.name || currentClinic?.slug || '—'}
+          </span>
+        </div>
+
+        {/* Бейдж пользователя */}
         <div className="px-3 py-2 rounded-lg bg-white/95 backdrop-blur shadow-md border border-emerald-200 text-xs text-emerald-700 flex items-center gap-1.5">
           <UserIcon className="h-3.5 w-3.5" />
-          <span className="font-medium max-w-[120px] truncate">{currentUser.displayName}</span>
+          <span className="font-medium max-w-[120px] truncate">
+            {currentUser.displayName || currentUser.username}
+          </span>
         </div>
 
         <Button
@@ -75,7 +92,9 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
         )}
 
         <Button
-          onClick={() => { if (confirm('Выйти?')) logout() }}
+          onClick={() => {
+            if (confirm('Выйти?')) logout()
+          }}
           variant="outline"
           size="sm"
           className="bg-white/95 backdrop-blur shadow-md border-rose-200 text-rose-700 hover:bg-rose-50 h-10 w-10 p-0"

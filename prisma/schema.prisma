@@ -1,5 +1,7 @@
-// Prisma schema for multi-tenant vet SaaS
-// БД: PostgreSQL (создана на relaxdev)
+// Prisma schema — мультитенант (single-DB PostgreSQL, clinic_id во всех таблицах)
+// Подход: одна БД на все клиники. Изоляция по clinic_id + композитный
+// уникальный индекс [clinicId, username] — позволяет логин "admin" в разных клиниках.
+// Зарезервировано поле Clinic.dbUrl для будущего перехода на DB-per-tenant.
 
 generator client {
   provider = "prisma-client-js"
@@ -8,36 +10,52 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  // В DATABASE_URL НЕ должно быть sslmode=require, ssl=true, channel_binding.
+  // База доступна только из внутренней сети — TLS не используется.
+  // См. .env.example.
 }
 
 // ============ КЛИНИКИ ============
 model Clinic {
   id          String   @id @default(cuid())
+  slug        String   @unique // 'acme-vet' — для входа и URL
   name        String   // Название клиники
-  address     String?  // Адрес
-  phone       String?  // Телефон
+  address     String?
+  phone       String?
   plan        String   @default("free") // free | basic | pro
-  visitLimit  Int      @default(10) // лимит приёмов в месяц (для тарифа)
+  visitLimit  Int     @default(10)
+  // Зарезервировано для будущего DB-per-tenant: если задан — роутер направляет
+  // запросы в отдельную БД этой клиники. Пока null — все клиники в общей БД.
+  dbUrl       String?
+  status      String   @default("active") // 'active' | 'suspended'
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   users       ClinicUser[]
   visits      Visit[]
+  sessions    Session[]
 }
 
 // ============ ПОЛЬЗОВАТЕЛИ КЛИНИКИ ============
+// КЛЮЧЕВОЕ: @@unique([clinicId, username]) — логин уникален только внутри клиники.
+// → admin@acme и admin@other — разные строки, обе валидны.
 model ClinicUser {
   id          String   @id @default(cuid())
-  username    String   @unique
-  password    String   // hash пароля (bcrypt)
-  displayName String   // ФИО врача
-  role        String   @default("vet") // admin | vet
   clinicId    String
+  username    String   // lowercase, без пробелов; уникален ВНУТРИ клиники
+  password    String   // bcrypt hash
+  displayName String   // ФИО врача
+  role        String   @default("vet") // 'admin' | 'vet' | 'receptionist'
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   clinic      Clinic   @relation(fields: [clinicId], references: [id], onDelete: Cascade)
-  visits      Visit[]  // визиты, созданные этим врачом
+  visits      Visit[]
+  sessions    Session[]
+
+  @@unique([clinicId, username]) // ← повторный admin в разных клиниках — OK
+  @@index([clinicId])
+  @@index([username])
 }
 
 // ============ ВИЗИТЫ (ПРИЁМЫ) ============
@@ -45,29 +63,20 @@ model Visit {
   id              String   @id @default(cuid())
   clinicId        String
   doctorId        String
-  // Данные пациента
-  species         String   // dog | cat | other
-  weight          String   // вес в кг
-  visitDate       String   // дата приёма
-  // Анамнез (все поля в JSON)
-  anamnesis       Json     // Record<string, string>
-  // Осмотр (все системы в JSON)
-  examination     Json     // Record<string, ExaminationParameter[]>
-  // Аускультация
-  auscultation    Json     // { rhythm, bpm, murmurs, notes }
-  // Сканы (файлы + OCR-текст)
-  scans           Json     // ScanFile[]
-  // Результаты
-  results         Json     // Results object
-  // AI-заключение
-  aiResult        String?  // текст AI-генерации
-  aiGeneratedAt   String?  // дата генерации
-  // Таймер приёма
-  visitStartedAt  Int?     // timestamp начала
-  visitEndedAt    Int?     // timestamp окончания
+  species         String
+  weight          String
+  visitDate       String
+  anamnesis       Json
+  examination     Json
+  auscultation    Json
+  scans           Json
+  results         Json
+  aiResult        String?
+  aiGeneratedAt   String?
+  visitStartedAt  Int?
+  visitEndedAt    Int?
   visitDurationMs Int      @default(0)
-  // Метаданные
-  visitSummary    String   @default("") // краткое описание для списка
+  visitSummary    String   @default("")
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -78,15 +87,19 @@ model Visit {
   @@index([doctorId])
 }
 
-// ============ СЕССИИ (для авторизации) ============
+// ============ СЕССИИ ============
 model Session {
-  id          String   @id @default(cuid())
-  token       String   @unique // session token
-  userId      String
-  clinicId    String
-  expiresAt   DateTime
-  createdAt   DateTime @default(now())
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  clinicId  String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user   ClinicUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clinic Clinic     @relation(fields: [clinicId], references: [id], onDelete: Cascade)
 
   @@index([token])
   @@index([userId])
+  @@index([clinicId])
 }

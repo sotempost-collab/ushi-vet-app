@@ -10,6 +10,7 @@ import { PawPrint, Building2, UserPlus, AlertCircle } from 'lucide-react'
 
 export function RegisterPage({ onSwitchToLogin }: { onSwitchToLogin: () => void }) {
   const router = useRouter()
+  const [clinicSlug, setClinicSlug] = useState('')
   const [clinicName, setClinicName] = useState('')
   const [address, setAddress] = useState('')
   const [phone, setPhone] = useState('')
@@ -23,12 +24,16 @@ export function RegisterPage({ onSwitchToLogin }: { onSwitchToLogin: () => void 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
-    if (!clinicName || !adminUsername || !adminPassword) {
-      setError('Заполните название клиники, логин и пароль администратора')
+    if (!clinicSlug || !clinicName || !adminUsername || !adminPassword) {
+      setError('Заполните slug, название клиники, логин и пароль администратора')
       return
     }
-    if (adminPassword.length < 6) {
-      setError('Пароль должен быть не короче 6 символов')
+    if (!/^[a-z0-9-]+$/.test(clinicSlug.toLowerCase().trim())) {
+      setError('Slug клиники: только строчные латинские буквы, цифры и дефис')
+      return
+    }
+    if (adminPassword.length < 4) {
+      setError('Пароль должен быть не короче 4 символов')
       return
     }
     setLoading(true)
@@ -36,7 +41,7 @@ export function RegisterPage({ onSwitchToLogin }: { onSwitchToLogin: () => void 
       const resp = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clinicName, address, phone, adminUsername, adminPassword, adminDisplayName }),
+        body: JSON.stringify({ clinicSlug, clinicName, address, phone, adminUsername, adminPassword, adminDisplayName }),
       })
       const data = await resp.json()
       if (!resp.ok) {
@@ -73,7 +78,7 @@ export function RegisterPage({ onSwitchToLogin }: { onSwitchToLogin: () => void 
             <PawPrint className="h-10 w-10 text-white" />
           </div>
           <h1 className="text-2xl font-bold text-emerald-800">Регистрация клиники</h1>
-          <p className="text-sm text-muted-foreground">Создайте аккаунт для вашей ветеринарной клиники</p>
+          <p className="text-sm text-muted-foreground">Создайте аккаунт для вашей ветеринарной клиники. Slug — короткое имя для входа.</p>
         </div>
 
         <Card className="border-emerald-200 shadow-lg">
@@ -85,6 +90,11 @@ export function RegisterPage({ onSwitchToLogin }: { onSwitchToLogin: () => void 
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Slug клиники * (для входа, напр.: acme-vet)</Label>
+                <Input value={clinicSlug} onChange={(e) => setClinicSlug(e.target.value.toLowerCase())} placeholder="acme-vet" className="h-10" />
+                <p className="text-xs text-muted-foreground">Только строчные буквы, цифры и дефис. Используется при входе.</p>
+              </div>
               <div className="space-y-1">
                 <Label className="text-xs">Название клиники *</Label>
                 <Input value={clinicName} onChange={(e) => setClinicName(e.target.value)} placeholder="Напр.: ВетКлиника №1" className="h-10" />
@@ -113,7 +123,7 @@ export function RegisterPage({ onSwitchToLogin }: { onSwitchToLogin: () => void 
                 <Input value={adminUsername} onChange={(e) => setAdminUsername(e.target.value)} placeholder="admin" className="h-10" />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Пароль * (мин. 6 символов)</Label>
+                <Label className="text-xs">Пароль * (мин. 4 символа)</Label>
                 <Input type="password" value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} placeholder="••••••" className="h-10" />
               </div>
 

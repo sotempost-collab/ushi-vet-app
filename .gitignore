@@ -1,14 +1,23 @@
 # Dependencies
 node_modules/
 
-# Build output
+# Build
 .next/
 out/
 
-# Environment
+# Local DB (только для dev)
+db/custom.db
+db/*.db
+db/*.db-journal
+
+# Env (НЕ коммитим)
 .env
 .env.local
-.env*.local
+.env.*.local
+
+# Logs
+*.log
+dev.log
 
 # IDE
 .vscode/
@@ -18,18 +27,29 @@ out/
 .DS_Store
 Thumbs.db
 
-# Logs
-*.log
-npm-debug.log*
+# Sandbox артефакты (не для прод)
+tool-results/
+upload/
+tests/python-runtime-*.sh
+tests/database-runtime-build.sh
+skills/
+examples/
 
-# Cache
-.cache/
-.turbo/
+# Старые архивы deploy
+download/*.zip
+download/*.png
+download/*.md
 
-# Database
+# Sandbox artifacts (только для dev, не для прода)
+tool-results/
+upload/
+tests/python-runtime-*.sh
+tests/database-runtime-build.sh
+skills/
+examples/
+next-env.d.ts
+tsconfig.tsbuildinfo
+dev.log
+db/custom.db
 db/*.db
 db/*.db-journal
-
-# Temp
-tmp/
-temp/

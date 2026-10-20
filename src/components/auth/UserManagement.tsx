@@ -22,6 +22,7 @@ interface ClinicUser {
 
 export function UserManagement({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const currentUser = useAuthStore((s) => s.currentUser)
+  const currentClinic = useAuthStore((s) => s.currentClinic)
   const token = useAuthStore((s) => s.token)
   const [users, setUsers] = useState<ClinicUser[]>([])
   const [loading, setLoading] = useState(false)
@@ -135,7 +136,9 @@ export function UserManagement({ open, onOpenChange }: { open: boolean; onOpenCh
           {isAdmin && (
             <>
               <div className="flex items-center justify-between">
-                <Label className="text-sm font-semibold">Пользователи клиники ({users.length})</Label>
+                <Label className="text-sm font-semibold">
+                  Пользователи клиники «{currentClinic?.name || currentClinic?.slug || '—'}» ({users.length})
+                </Label>
                 <Button size="sm" onClick={() => setShowAdd(true)} className="bg-emerald-600 hover:bg-emerald-700">
                   <UserPlus className="h-3.5 w-3.5 mr-1" /> Добавить
                 </Button>
