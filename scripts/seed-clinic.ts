@@ -167,9 +167,14 @@ async function main() {
 
 main()
   .catch((e) => {
-    console.error(e)
-    process.exit(1)
+    // Не падаем с ненулевым кодом — это позволило бы контейнеру стартовать
+    // даже если seed временно недоступен (например, БД ещё поднимается).
+    // Логируем ошибку, но выходим с 0.
+    console.error('⚠️  Seed не выполнен (вероятно БД недоступна):')
+    console.error('   ', e.message || e)
+    console.error('   Приложение продолжит запуск — это не блокирующая ошибка.')
+    process.exit(0)
   })
   .finally(async () => {
-    await prisma.$disconnect()
+    await prisma.$disconnect().catch(() => {})
   })

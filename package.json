@@ -4,9 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000 2>&1 | tee dev.log",
-    "build": "prisma generate && prisma db push --accept-data-loss && tsx scripts/seed-clinic.ts && next build",
+    "build": "prisma generate && next build",
     "postinstall": "prisma generate || true",
-    "start": "next start",
+    "start": "prisma db push --accept-data-loss; tsx scripts/seed-clinic.ts; next start",
     "lint": "eslint .",
     "db:push": "prisma db push --accept-data-loss",
     "db:generate": "prisma generate",
