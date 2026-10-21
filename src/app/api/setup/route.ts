@@ -1,12 +1,15 @@
-// Ручной setup — создаёт clinic slug=default + admin/admin в БД.
-// Используется когда seed-скрипт при старте контейнера не отработал.
+// Ручной setup — накатывает схему БД + создаёт clinic slug=default + admin/admin.
+// Используется когда prisma db push при старте контейнера не отработал.
 //
 // Запуск: открыть в браузере
 //   https://<ваш-проект>.relaxdev.ru/api/setup
 //
-// Безопасность: эндпоинт публичный, но idempotent — не перезаписывает
-// существующие клиники/пользователей. После первого использования
-// можно удалить этот файл.
+// Что делает (idempotent):
+// 1. ALTER TABLE — добавляет недостающие колонки (slug, status, dbUrl, updatedAt)
+// 2. Создаёт индексы и composite unique [clinicId, username]
+// 3. Создаёт clinic slug=default + admin/admin (если нет)
+// 4. Сбрасывает пароль admin на 'admin' (если админ есть, но пароль неизвестен)
+// 5. Возвращает JSON { success, log } с подробным логом
 
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
@@ -17,10 +20,70 @@ export async function GET(_request: NextRequest) {
   try {
     log.push('=== Setup start ===')
 
-    // 1. Найти или создать clinic slug=default
+    // ── Шаг 1: накатываем схему через raw SQL (idempotent) ──────────────
+    log.push('')
+    log.push('→ Шаг 1: Проверка и накат схемы БД')
+
+    await execSQL(log, `ALTER TABLE "Clinic" ADD COLUMN IF NOT EXISTS "slug" TEXT`)
+    await execSQL(log, `ALTER TABLE "Clinic" ADD COLUMN IF NOT EXISTS "status" TEXT NOT NULL DEFAULT 'active'`)
+    await execSQL(log, `ALTER TABLE "Clinic" ADD COLUMN IF NOT EXISTS "dbUrl" TEXT`)
+    await execSQL(log, `ALTER TABLE "Clinic" ADD COLUMN IF NOT EXISTS "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP`)
+    await execSQL(log, `CREATE UNIQUE INDEX IF NOT EXISTS "Clinic_slug_key" ON "Clinic"("slug")`)
+
+    await execSQL(log, `ALTER TABLE "ClinicUser" ADD COLUMN IF NOT EXISTS "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP`)
+
+    // Composite unique [clinicId, username] — нужно удалить старый глобальный
+    // unique constraint на username, если он есть, и создать составной.
+    try {
+      await prisma.$executeRawUnsafe(`DROP INDEX IF EXISTS "ClinicUser_username_key"`)
+      log.push(`  ✓ Удалён старый индекс ClinicUser_username_key (если был)`)
+    } catch (e: any) {
+      log.push(`  → Пропуск: ${e.message}`)
+    }
+    try {
+      await prisma.$executeRawUnsafe(`ALTER TABLE "ClinicUser" DROP CONSTRAINT IF EXISTS "ClinicUser_username_key"`)
+      log.push(`  ✓ Удалён старый constraint ClinicUser_username_key (если был)`)
+    } catch (e: any) {
+      log.push(`  → Пропуск: ${e.message}`)
+    }
+    await execSQL(log, `CREATE UNIQUE INDEX IF NOT EXISTS "ClinicUser_clinicId_username_key" ON "ClinicUser"("clinicId", "username")`)
+    await execSQL(log, `CREATE INDEX IF NOT EXISTS "ClinicUser_clinicId_idx" ON "ClinicUser"("clinicId")`)
+
+    await execSQL(log, `ALTER TABLE "Session" ADD COLUMN IF NOT EXISTS "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP`)
+    await execSQL(log, `CREATE INDEX IF NOT EXISTS "Session_clinicId_idx" ON "Session"("clinicId")`)
+
+    // ── Шаг 2: миграция существующих клиник без slug ────────────────────
+    log.push('')
+    log.push('→ Шаг 2: Миграция slug для существующих клиник')
+    const clinicsWithoutSlug = await prisma.clinic.findMany({
+      where: { slug: null },
+      select: { id: true, name: true },
+    })
+    if (clinicsWithoutSlug.length === 0) {
+      log.push('  → Все клиники уже имеют slug')
+    } else {
+      const used = new Set(
+        (await prisma.clinic.findMany({
+          where: { slug: { not: null } },
+          select: { slug: true },
+        })).map((c) => c.slug!).filter(Boolean),
+      )
+      for (const c of clinicsWithoutSlug) {
+        let slug = slugify(c.name)
+        let i = 2
+        while (used.has(slug)) slug = `${slugify(c.name)}-${i++}`
+        used.add(slug)
+        await prisma.clinic.update({ where: { id: c.id }, data: { slug } })
+        log.push(`  ✓ "${c.name}" → slug="${slug}"`)
+      }
+    }
+
+    // ── Шаг 3: создать или обновить clinic slug=default ────────────────
+    log.push('')
+    log.push('→ Шаг 3: Создание clinic slug=default')
     let clinic = await prisma.clinic.findUnique({ where: { slug: 'default' } })
     if (clinic) {
-      log.push(`✓ Clinic "default" уже существует: id=${clinic.id}`)
+      log.push(`  ✓ Clinic "default" уже существует: id=${clinic.id}`)
     } else {
       clinic = await prisma.clinic.create({
         data: {
@@ -31,21 +94,22 @@ export async function GET(_request: NextRequest) {
           visitLimit: 10,
         },
       })
-      log.push(`✓ Создана clinic "default": id=${clinic.id}`)
+      log.push(`  ✓ Создана clinic "default": id=${clinic.id}`)
     }
 
-    // 2. Найти или создать admin в этой клинике
+    // ── Шаг 4: создать admin/admin в этой клинике ───────────────────────
+    log.push('')
+    log.push('→ Шаг 4: Создание admin/admin в clinic "default"')
     let admin = await prisma.clinicUser.findFirst({
       where: { clinicId: clinic.id, username: 'admin' },
     })
     if (admin) {
-      log.push(`→ Admin "admin" уже существует в clinic "default"`)
-      // Сбросим пароль на admin/admin (т.к. пользователь явно хочет войти с admin/admin)
+      log.push(`  → Admin "admin" уже существует — сбрасываем пароль на "admin"`)
       await prisma.clinicUser.update({
         where: { id: admin.id },
         data: { password: bcrypt.hashSync('admin', 10) },
       })
-      log.push(`✓ Пароль admin сброшен на "admin"`)
+      log.push(`  ✓ Пароль сброшен`)
     } else {
       admin = await prisma.clinicUser.create({
         data: {
@@ -56,54 +120,32 @@ export async function GET(_request: NextRequest) {
           role: 'admin',
         },
       })
-      log.push(`✓ Создан admin: id=${admin.id}, username=admin, password=admin`)
+      log.push(`  ✓ Создан admin: id=${admin.id}`)
     }
 
-    // 3. Заодно мигрируем существующие клиники без slug.
-    const clinicsWithoutSlug = await prisma.clinic.findMany({
-      where: { slug: null },
-      select: { id: true, name: true },
-    })
-    if (clinicsWithoutSlug.length > 0) {
-      log.push(`→ Мигрируем ${clinicsWithoutSlug.length} клиник без slug`)
-      const used = new Set(
-        (await prisma.clinic.findMany({
-          where: { slug: { not: null } },
-          select: { slug: true },
-        })).map((c) => c.slug!).filter(Boolean),
-      )
-      for (const c of clinicsWithoutSlug) {
-        const slug = slugify(c.name)
-        let finalSlug = slug
-        let i = 2
-        while (used.has(finalSlug)) {
-          finalSlug = `${slug}-${i++}`
-        }
-        used.add(finalSlug)
-        await prisma.clinic.update({ where: { id: c.id }, data: { slug: finalSlug } })
-        log.push(`  ✓ "${c.name}" → slug="${finalSlug}"`)
-      }
-    }
-
-    // 4. Выведем все клиники
+    // ── Шаг 5: вывести все клиники ──────────────────────────────────────
+    log.push('')
+    log.push('→ Шаг 5: Все клиники в БД сейчас')
     const all = await prisma.clinic.findMany({
       select: { slug: true, name: true, status: true },
       orderBy: { name: 'asc' },
     })
-    log.push('')
-    log.push('=== Все клиники сейчас ===')
     for (const c of all) {
       log.push(`  - slug="${c.slug}" name="${c.name}" status="${c.status}"`)
     }
 
     log.push('')
     log.push('=== Setup complete ===')
-    log.push('Готово к входу:')
+    log.push('')
+    log.push('✓ Готово к входу:')
     log.push('  Клиника: default')
-    log.push('  Логин: admin')
-    log.push('  Пароль: admin')
+    log.push('  Логин:   admin')
+    log.push('  Пароль:  admin')
 
-    return NextResponse.json({ success: true, log }, { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    return NextResponse.json(
+      { success: true, log },
+      { headers: { 'Content-Type': 'application/json; charset=utf-8' } },
+    )
   } catch (e: any) {
     log.push(`❌ Ошибка: ${e.message}`)
     console.error('Setup error:', e)
@@ -111,6 +153,21 @@ export async function GET(_request: NextRequest) {
       { success: false, error: e.message, log },
       { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } },
     )
+  }
+}
+
+// Helper — выполняет SQL с защитой от ошибок (idempotent).
+async function execSQL(log: string[], sql: string) {
+  try {
+    await prisma.$executeRawUnsafe(sql)
+    log.push(`  ✓ ${sql.substring(0, 80)}${sql.length > 80 ? '…' : ''}`)
+  } catch (e: any) {
+    // Если колонка уже существует — это OK (idempotent)
+    if (e.message.includes('already exists') || e.message.includes('duplicate column')) {
+      log.push(`  → OK (уже существует): ${sql.substring(0, 60)}…`)
+    } else {
+      log.push(`  ⚠️ ${e.message}: ${sql.substring(0, 60)}…`)
+    }
   }
 }
 
