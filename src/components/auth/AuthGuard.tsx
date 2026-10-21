@@ -2,49 +2,31 @@
 
 import { useState, useEffect } from 'react'
 import { useAuthStore } from '@/store/authStore'
+import { LoginPage } from '@/components/auth/LoginPage'
+import { RegisterPage } from '@/components/auth/RegisterPage'
 import { UserManagement } from '@/components/auth/UserManagement'
 import { AiSettingsModal } from '@/components/auth/AiSettingsModal'
 import { Button } from '@/components/ui/button'
 import { Users, LogOut, User as UserIcon, Sparkles, Building2 } from 'lucide-react'
 
-// Локальный режим (без серверной авторизации).
-// Приложение работает полностью на localStorage — визиты, пользователи,
-// настройки — всё в браузере. Никакого обращения к /api/auth/*.
-// Это защитит от «внутренней ошибки сервера» если БД недоступна.
-//
-// Если позже захотите серверную авторизацию обратно — просто замените
-// AuthGuard на версию с restoreSession() и isAuthenticated-проверкой
-// (git log: commit 07ecf7f).
-
-const FAKE_USER = {
-  id: 'local-admin',
-  username: 'admin',
-  displayName: 'Локальный врач',
-  role: 'admin' as const,
-}
-
-const FAKE_CLINIC = {
-  id: 'local-clinic',
-  slug: 'local',
-  name: 'Локальный режим',
-  plan: 'free',
-  visitLimit: 9999,
-}
-
 export function AuthGuard({ children }: { children: React.ReactNode }) {
-  const setAuthBypass = useAuthStore((s) => s.setAuthBypass)
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
   const currentUser = useAuthStore((s) => s.currentUser)
+  const currentClinic = useAuthStore((s) => s.currentClinic)
+  const restoreSession = useAuthStore((s) => s.restoreSession)
   const logout = useAuthStore((s) => s.logout)
 
   const [showUserManagement, setShowUserManagement] = useState(false)
   const [showAiSettings, setShowAiSettings] = useState(false)
+  const [showRegister, setShowRegister] = useState(false)
   const [hydrated, setHydrated] = useState(false)
 
+  // Гидратация + проверка сохранённой сессии.
   useEffect(() => {
     setHydrated(true)
-    // Поднимаем фейковую сессию — приложение работает без входа.
-    setAuthBypass(FAKE_USER, FAKE_CLINIC)
-  }, [setAuthBypass])
+    // Если в localStorage есть token — проверим, валиден ли он.
+    restoreSession()
+  }, [restoreSession])
 
   if (!hydrated) {
     return (
@@ -57,6 +39,15 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     )
   }
 
+  if (!isAuthenticated || !currentUser) {
+    if (showRegister) {
+      return <RegisterPage onSwitchToLogin={() => setShowRegister(false)} />
+    }
+    return (
+      <LoginPage onSwitchToRegister={() => setShowRegister(true)} />
+    )
+  }
+
   return (
     <>
       {children}
@@ -65,14 +56,16 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
         {/* Бейдж клиники */}
         <div className="px-3 py-2 rounded-lg bg-white/95 backdrop-blur shadow-md border border-emerald-200 text-xs text-emerald-700 flex items-center gap-1.5">
           <Building2 className="h-3.5 w-3.5" />
-          <span className="font-medium max-w-[100px] truncate">Локальный режим</span>
+          <span className="font-medium max-w-[100px] truncate">
+            {currentClinic?.name || currentClinic?.slug || '—'}
+          </span>
         </div>
 
         {/* Бейдж пользователя */}
         <div className="px-3 py-2 rounded-lg bg-white/95 backdrop-blur shadow-md border border-emerald-200 text-xs text-emerald-700 flex items-center gap-1.5">
           <UserIcon className="h-3.5 w-3.5" />
           <span className="font-medium max-w-[120px] truncate">
-            {currentUser?.displayName || 'Локальный врач'}
+            {currentUser.displayName || currentUser.username}
           </span>
         </div>
 
@@ -86,21 +79,21 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
           <Sparkles className="h-4 w-4" />
         </Button>
 
-        <Button
-          onClick={() => setShowUserManagement(true)}
-          variant="outline"
-          size="sm"
-          className="bg-white/95 backdrop-blur shadow-md border-emerald-200 text-emerald-700 hover:bg-emerald-50 h-10 w-10 p-0"
-          title="Управление пользователями (локально)"
-        >
-          <Users className="h-4 w-4" />
-        </Button>
+        {currentUser.role === 'admin' && (
+          <Button
+            onClick={() => setShowUserManagement(true)}
+            variant="outline"
+            size="sm"
+            className="bg-white/95 backdrop-blur shadow-md border-emerald-200 text-emerald-700 hover:bg-emerald-50 h-10 w-10 p-0"
+            title="Управление пользователями"
+          >
+            <Users className="h-4 w-4" />
+          </Button>
+        )}
 
         <Button
           onClick={() => {
-            if (confirm('Выйти из локального режима?')) {
-              logout()
-            }
+            if (confirm('Выйти?')) logout()
           }}
           variant="outline"
           size="sm"

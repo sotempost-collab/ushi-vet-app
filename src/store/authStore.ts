@@ -36,9 +36,6 @@ interface AuthState {
   logout: () => Promise<void>
   restoreSession: () => Promise<void>
   clearSession: () => void
-  // Локальный режим: поднимает фейковую сессию без обращения к серверу.
-  // Используется AuthGuard'ом когда серверная авторизация недоступна / не нужна.
-  setAuthBypass: (user: User, clinic: Clinic) => void
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -148,17 +145,6 @@ export const useAuthStore = create<AuthState>()(
           currentUser: null,
           currentClinic: null,
           isAuthenticated: false,
-        })
-      },
-
-      setAuthBypass: (user, clinic) => {
-        // Не перезаписываем, если уже авторизован — пусть logout работает.
-        if (get().isAuthenticated && get().currentUser?.id !== 'local-admin') return
-        set({
-          token: null, // без токена — никаких /api-запросов не пойдёт
-          currentUser: user,
-          currentClinic: clinic,
-          isAuthenticated: true,
         })
       },
     }),

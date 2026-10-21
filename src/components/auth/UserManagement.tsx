@@ -52,10 +52,6 @@ export function UserManagement({ open, onOpenChange }: { open: boolean; onOpenCh
 
   const handleAddUser = async () => {
     setError('')
-    if (!token) {
-      setError('Локальный режим: пользователи не сохраняются. Подключите БД для управления пользователями.')
-      return
-    }
     if (!newUser.username || !newUser.password) { setError('Логин и пароль обязательны'); return }
     setLoading(true)
     try {
@@ -100,10 +96,6 @@ export function UserManagement({ open, onOpenChange }: { open: boolean; onOpenCh
 
   const handleChangePassword = async () => {
     setError('')
-    if (!token) {
-      setError('Локальный режим: смена пароля недоступна. Подключите БД.')
-      return
-    }
     if (!changePass.oldPassword || !changePass.newPassword) { setError('Заполните оба поля'); return }
     if (changePass.newPassword.length < 4) { setError('Новый пароль не короче 4 символов'); return }
     setLoading(true)
