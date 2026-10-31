@@ -36,6 +36,9 @@ interface AuthState {
   logout: () => Promise<void>
   restoreSession: () => Promise<void>
   clearSession: () => void
+  // Безавторизованный режим: поднимает фейковую сессию без обращения к серверу.
+  // Используется AuthGuard'ом когда авторизация временно отключена.
+  setAuthBypass: (user: User, clinic: Clinic) => void
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -145,6 +148,15 @@ export const useAuthStore = create<AuthState>()(
           currentUser: null,
           currentClinic: null,
           isAuthenticated: false,
+        })
+      },
+
+      setAuthBypass: (user, clinic) => {
+        set({
+          token: null, // без токена — никаких /api-запросов не пойдёт
+          currentUser: user,
+          currentClinic: clinic,
+          isAuthenticated: true,
         })
       },
     }),

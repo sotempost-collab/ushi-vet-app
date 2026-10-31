@@ -2,31 +2,43 @@
 
 import { useState, useEffect } from 'react'
 import { useAuthStore } from '@/store/authStore'
-import { LoginPage } from '@/components/auth/LoginPage'
-import { RegisterPage } from '@/components/auth/RegisterPage'
 import { UserManagement } from '@/components/auth/UserManagement'
 import { AiSettingsModal } from '@/components/auth/AiSettingsModal'
 import { Button } from '@/components/ui/button'
-import { Users, LogOut, User as UserIcon, Sparkles, Building2 } from 'lucide-react'
+import { Users, Sparkles } from 'lucide-react'
+
+// Режим без авторизации — приложение открывается сразу без страницы входа.
+// Логин/пароль и панель входа будут добавлены позже.
+//
+// Чтобы вернуть серверную авторизацию — восстановите из commit bce4a0b:
+//   git checkout bce4a0b -- src/components/auth/AuthGuard.tsx src/store/authStore.ts
+// Чтобы вернуть локальный режим с фейковой сессией — commit eb23a00.
+
+const DEFAULT_USER = {
+  id: 'local-user',
+  username: 'doctor',
+  displayName: 'Врач',
+  role: 'admin' as const,
+}
+
+const DEFAULT_CLINIC = {
+  id: 'local-clinic',
+  slug: 'local',
+  name: 'ВетКлиника',
+  plan: 'free',
+  visitLimit: 9999,
+}
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
-  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
-  const currentUser = useAuthStore((s) => s.currentUser)
-  const currentClinic = useAuthStore((s) => s.currentClinic)
-  const restoreSession = useAuthStore((s) => s.restoreSession)
-  const logout = useAuthStore((s) => s.logout)
-
+  const setAuthBypass = useAuthStore((s) => s.setAuthBypass)
   const [showUserManagement, setShowUserManagement] = useState(false)
   const [showAiSettings, setShowAiSettings] = useState(false)
-  const [showRegister, setShowRegister] = useState(false)
   const [hydrated, setHydrated] = useState(false)
 
-  // Гидратация + проверка сохранённой сессии.
   useEffect(() => {
     setHydrated(true)
-    // Если в localStorage есть token — проверим, валиден ли он.
-    restoreSession()
-  }, [restoreSession])
+    setAuthBypass(DEFAULT_USER, DEFAULT_CLINIC)
+  }, [setAuthBypass])
 
   if (!hydrated) {
     return (
@@ -39,36 +51,11 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     )
   }
 
-  if (!isAuthenticated || !currentUser) {
-    if (showRegister) {
-      return <RegisterPage onSwitchToLogin={() => setShowRegister(false)} />
-    }
-    return (
-      <LoginPage onSwitchToRegister={() => setShowRegister(true)} />
-    )
-  }
-
   return (
     <>
       {children}
 
-      <div className="fixed bottom-4 right-4 z-50 flex gap-2 pb-[env(safe-area-inset-bottom)] flex-wrap justify-end max-w-[calc(100vw-2rem)]">
-        {/* Бейдж клиники */}
-        <div className="px-3 py-2 rounded-lg bg-white/95 backdrop-blur shadow-md border border-emerald-200 text-xs text-emerald-700 flex items-center gap-1.5">
-          <Building2 className="h-3.5 w-3.5" />
-          <span className="font-medium max-w-[100px] truncate">
-            {currentClinic?.name || currentClinic?.slug || '—'}
-          </span>
-        </div>
-
-        {/* Бейдж пользователя */}
-        <div className="px-3 py-2 rounded-lg bg-white/95 backdrop-blur shadow-md border border-emerald-200 text-xs text-emerald-700 flex items-center gap-1.5">
-          <UserIcon className="h-3.5 w-3.5" />
-          <span className="font-medium max-w-[120px] truncate">
-            {currentUser.displayName || currentUser.username}
-          </span>
-        </div>
-
+      <div className="fixed bottom-4 right-4 z-50 flex gap-2 pb-[env(safe-area-inset-bottom)]">
         <Button
           onClick={() => setShowAiSettings(true)}
           variant="outline"
@@ -79,28 +66,14 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
           <Sparkles className="h-4 w-4" />
         </Button>
 
-        {currentUser.role === 'admin' && (
-          <Button
-            onClick={() => setShowUserManagement(true)}
-            variant="outline"
-            size="sm"
-            className="bg-white/95 backdrop-blur shadow-md border-emerald-200 text-emerald-700 hover:bg-emerald-50 h-10 w-10 p-0"
-            title="Управление пользователями"
-          >
-            <Users className="h-4 w-4" />
-          </Button>
-        )}
-
         <Button
-          onClick={() => {
-            if (confirm('Выйти?')) logout()
-          }}
+          onClick={() => setShowUserManagement(true)}
           variant="outline"
           size="sm"
-          className="bg-white/95 backdrop-blur shadow-md border-rose-200 text-rose-700 hover:bg-rose-50 h-10 w-10 p-0"
-          title="Выйти"
+          className="bg-white/95 backdrop-blur shadow-md border-emerald-200 text-emerald-700 hover:bg-emerald-50 h-10 w-10 p-0"
+          title="Управление пользователями"
         >
-          <LogOut className="h-4 w-4" />
+          <Users className="h-4 w-4" />
         </Button>
       </div>
 
