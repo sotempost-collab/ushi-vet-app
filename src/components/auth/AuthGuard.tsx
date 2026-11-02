@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useEffect } from 'react'
 import { useAuthStore } from '@/store/authStore'
 import { UserManagement } from '@/components/auth/UserManagement'
 import { AiSettingsModal } from '@/components/auth/AiSettingsModal'
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Users, Sparkles } from 'lucide-react'
 
@@ -12,7 +13,6 @@ import { Users, Sparkles } from 'lucide-react'
 //
 // Чтобы вернуть серверную авторизацию — восстановите из commit bce4a0b:
 //   git checkout bce4a0b -- src/components/auth/AuthGuard.tsx src/store/authStore.ts
-// Чтобы вернуть локальный режим с фейковой сессией — commit eb23a00.
 
 const DEFAULT_USER = {
   id: 'local-user',
@@ -33,23 +33,25 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   const setAuthBypass = useAuthStore((s) => s.setAuthBypass)
   const [showUserManagement, setShowUserManagement] = useState(false)
   const [showAiSettings, setShowAiSettings] = useState(false)
-  const [hydrated, setHydrated] = useState(false)
 
+  // Поднимаем дефолтную сессию — без обращения к серверу.
+  // Без hydrated-проверки, чтобы избежать зависания на loader'е.
   useEffect(() => {
-    setHydrated(true)
+    // Очищаем возможный мусор от старых версий (старый token, который
+    // мог остаться от предыдущей серверной авторизации).
+    try {
+      const raw = localStorage.getItem('ushihvost-auth-storage')
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (parsed?.state?.token) {
+          // Удаляем старый token — он не валиден в безавторизованном режиме.
+          parsed.state.token = null
+          localStorage.setItem('ushihvost-auth-storage', JSON.stringify(parsed))
+        }
+      }
+    } catch {}
     setAuthBypass(DEFAULT_USER, DEFAULT_CLINIC)
   }, [setAuthBypass])
-
-  if (!hydrated) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-emerald-50 via-sky-50 to-amber-50">
-        <div className="flex flex-col items-center gap-4">
-          <div className="h-12 w-12 border-4 border-emerald-200 border-t-emerald-600 rounded-full animate-spin" />
-          <div className="text-sm text-muted-foreground">Загрузка приложения…</div>
-        </div>
-      </div>
-    )
-  }
 
   return (
     <>
